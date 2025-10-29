@@ -1,0 +1,26 @@
+# Large data directories
+data/
+data_processed/
+db/
+
+# Task files - too large for git
+example/track1/
+example/track2/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.env
+venv/
+
+# OS files
+.DS_Store
+
+# Build
+*.egg-info/
+dist/
+build/
