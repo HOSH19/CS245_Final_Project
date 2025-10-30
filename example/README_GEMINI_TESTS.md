@@ -44,7 +44,7 @@ poetry add google-generativeai python-dotenv
 3. Select your GCP project (with your $50 credits)
 4. Copy the API key
 
-> 📖 For detailed setup instructions, see [`SETUP_GOOGLE_GCP.md`](./SETUP_GOOGLE_GCP.md)
+> 📖 For detailed setup instructions, see [`README_SETUP_GOOGLE_GCP.md`](./README_SETUP_GOOGLE_GCP.md)
 
 ### 3. Set Up Environment Variables
 
@@ -297,7 +297,7 @@ See the main README for submission guidelines:
 
 ## 📚 Additional Resources
 
-- **Setup Guide**: [`SETUP_GOOGLE_GCP.md`](./SETUP_GOOGLE_GCP.md) - Detailed GCP setup
+- **Setup Guide**: [`README_SETUP_GOOGLE_GCP.md`](./README_SETUP_GOOGLE_GCP.md) - Detailed GCP setup
 - **Agent Documentation**: [`README_ENHANCED_AGENTS.md`](./README_ENHANCED_AGENTS.md) - Understanding the enhanced agents
 - **Google Gemini Docs**: https://ai.google.dev/docs - API documentation
 - **Main Challenge README**: [`../README.md`](../README.md) - Full competition details
@@ -329,7 +329,7 @@ python test_gemini_simulation.py && python test_gemini_rec.py
 
 - Check the main documentation in the repository
 - Review the enhanced agents code for implementation details
-- See `SETUP_GOOGLE_GCP.md` for API key and billing issues
+- See `README_SETUP_GOOGLE_GCP.md` for API key and billing issues
 
 ---
 
