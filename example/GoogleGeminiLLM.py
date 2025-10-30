@@ -58,7 +58,19 @@ class GoogleGeminiLLM(LLMBase):
         
         # Configure Gemini
         genai.configure(api_key=self.api_key)
-        self.client = genai.GenerativeModel(model)
+        
+        # Configure safety settings to be less restrictive for simulation/research
+        self.safety_settings = {
+            'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
+            'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
+            'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
+            'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE',
+        }
+        
+        self.client = genai.GenerativeModel(
+            model,
+            safety_settings=self.safety_settings
+        )
         
         # For embeddings, we'll use OpenAI embeddings (they're very good and cheap)
         # You can use OpenAI with a separate key, or Gemini embeddings
@@ -136,28 +148,46 @@ class GoogleGeminiLLM(LLMBase):
                 if system_instruction:
                     temp_client = genai.GenerativeModel(
                         model or self.model,
-                        system_instruction=system_instruction
+                        system_instruction=system_instruction,
+                        safety_settings=self.safety_settings
                     )
                     response = temp_client.generate_content(
                         gemini_messages,
-                        generation_config=generation_config
+                        generation_config=generation_config,
+                        safety_settings=self.safety_settings
                     )
                 else:
                     # For single user message (most common case)
                     if len(gemini_messages) == 1 and gemini_messages[0]['role'] == 'user':
                         response = client.generate_content(
                             gemini_messages[0]['parts'][0],
-                            generation_config=generation_config
+                            generation_config=generation_config,
+                            safety_settings=self.safety_settings
                         )
                     else:
                         # For multi-turn conversations
                         chat = client.start_chat(history=gemini_messages[:-1])
                         response = chat.send_message(
                             gemini_messages[-1]['parts'][0],
-                            generation_config=generation_config
+                            generation_config=generation_config,
+                            safety_settings=self.safety_settings
                         )
                 
-                responses.append(response.text)
+                # Handle blocked or empty responses
+                if response.candidates and response.candidates[0].content.parts:
+                    responses.append(response.text)
+                else:
+                    # Response was blocked or empty
+                    finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
+                    safety_ratings = response.candidates[0].safety_ratings if response.candidates else []
+                    
+                    error_msg = f"Response blocked or empty. Finish reason: {finish_reason}"
+                    if safety_ratings:
+                        error_msg += f"\nSafety ratings: {[(r.category, r.probability) for r in safety_ratings]}"
+                    
+                    logger.warning(error_msg)
+                    # Return a safe fallback response
+                    responses.append("[Response blocked by safety filters. Please try rephrasing your request or adjusting safety settings.]")
             
             # Return single string or list based on n
             if n == 1:

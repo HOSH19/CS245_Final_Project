@@ -2,7 +2,7 @@ from GoogleGeminiLLM import GoogleGeminiLLM
 from websocietysimulator import Simulator
 from EnhancedSimulationAgent import EnhancedSimulationAgent
 
-llm = GoogleGeminiLLM(model='gemini-1.5-flash')  # Reads from .env automatically
+llm = GoogleGeminiLLM(model='gemini-2.0-flash')  # Reads from .env automatically (updated to latest model)
 simulator = Simulator(data_dir='../data_processed', cache=True)
 simulator.set_task_and_groundtruth(
     task_dir='./track1/yelp/tasks',
