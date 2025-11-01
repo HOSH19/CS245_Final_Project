@@ -1,0 +1,184 @@
+{
+  "default": {
+    "workflow": "default",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.6666666666666666,
+        "top_3_hit_rate": 1.0,
+        "top_5_hit_rate": 1.0,
+        "average_hit_rate": 0.8888888888888888,
+        "total_scenarios": 3,
+        "top_1_hits": 2,
+        "top_3_hits": 3,
+        "top_5_hits": 3
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 23.985460996627808,
+    "avg_time_per_task": 7.9951536655426025,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "voyager": {
+    "workflow": "voyager",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 1.0,
+        "top_3_hit_rate": 1.0,
+        "top_5_hit_rate": 1.0,
+        "average_hit_rate": 1.0,
+        "total_scenarios": 3,
+        "top_1_hits": 3,
+        "top_3_hits": 3,
+        "top_5_hits": 3
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 23.91002869606018,
+    "avg_time_per_task": 7.9700095653533936,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "self_refine": {
+    "workflow": "self_refine",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.3333333333333333,
+        "top_3_hit_rate": 0.6666666666666666,
+        "top_5_hit_rate": 0.6666666666666666,
+        "average_hit_rate": 0.5555555555555555,
+        "total_scenarios": 3,
+        "top_1_hits": 1,
+        "top_3_hits": 2,
+        "top_5_hits": 2
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 20.700896978378296,
+    "avg_time_per_task": 6.900298992792766,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "cot_sc": {
+    "workflow": "cot_sc",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.0,
+        "top_3_hit_rate": 0.6666666666666666,
+        "top_5_hit_rate": 0.6666666666666666,
+        "average_hit_rate": 0.4444444444444444,
+        "total_scenarios": 3,
+        "top_1_hits": 0,
+        "top_3_hits": 2,
+        "top_5_hits": 2
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 15.111307144165039,
+    "avg_time_per_task": 5.037102381388347,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "voyager_memory": {
+    "workflow": "voyager_memory",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.3333333333333333,
+        "top_3_hit_rate": 0.6666666666666666,
+        "top_5_hit_rate": 0.6666666666666666,
+        "average_hit_rate": 0.5555555555555555,
+        "total_scenarios": 3,
+        "top_1_hits": 1,
+        "top_3_hits": 2,
+        "top_5_hits": 2
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 19.48806595802307,
+    "avg_time_per_task": 6.49602198600769,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "openagi": {
+    "workflow": "openagi",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.3333333333333333,
+        "top_3_hit_rate": 0.6666666666666666,
+        "top_5_hit_rate": 0.6666666666666666,
+        "average_hit_rate": 0.5555555555555555,
+        "total_scenarios": 3,
+        "top_1_hits": 1,
+        "top_3_hits": 2,
+        "top_5_hits": 2
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 4.255347013473511,
+    "avg_time_per_task": 1.4184490044911702,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  },
+  "hybrid": {
+    "workflow": "hybrid",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.3333333333333333,
+        "top_3_hit_rate": 0.6666666666666666,
+        "top_5_hit_rate": 0.6666666666666666,
+        "average_hit_rate": 0.5555555555555555,
+        "total_scenarios": 3,
+        "top_1_hits": 1,
+        "top_3_hits": 2,
+        "top_5_hits": 2
+      },
+      "data_info": {
+        "evaluated_count": 3,
+        "original_simulation_count": 3,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 0.5548779964447021,
+    "avg_time_per_task": 0.18495933214823404,
+    "num_tasks": 3,
+    "dataset": "yelp",
+    "success": true
+  }
+}
