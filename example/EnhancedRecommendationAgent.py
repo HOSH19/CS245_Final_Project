@@ -14,10 +14,10 @@ from websocietysimulator import Simulator
 from websocietysimulator.agent import RecommendationAgent
 from websocietysimulator.llm import LLMBase, InfinigenceLLM
 from websocietysimulator.agent.modules.planning_modules import (
-    PlanningVoyager, PlanningIO, PlanningOPENAGI, PlanningHUGGINGGPT, PlanningTD
+    PlanningVoyager, PlanningIO, PlanningOPENAGI, PlanningHUGGINGGPT, PlanningTD, PlanningDEPS
 )
 from websocietysimulator.agent.modules.reasoning_modules import (
-    ReasoningCOT, ReasoningStepBack, ReasoningSelfRefine, ReasoningCOTSC, ReasoningTOT
+    ReasoningCOT, ReasoningStepBack, ReasoningSelfRefine, ReasoningCOTSC, ReasoningTOT, ReasoningIO
 )
 from websocietysimulator.agent.modules.memory_modules import (
     MemoryGenerative, MemoryDILU, MemoryVoyager, MemoryTP
@@ -787,6 +787,197 @@ Now rank the items:
             planning_module=huggingpt_planning,
             reasoning_module=cot_reasoning,
             memory_module=tp_memory
+        )
+    
+    # ========================================================================
+    # NEW WORKFLOW COMBINATIONS - EXPLORING UNUSED MODULES
+    # ========================================================================
+    
+    def workflow_with_tot_reasoning(self) -> List[str]:
+        """
+        Workflow using ReasoningTOT (Tree of Thoughts).
+        
+        Generates 3 reasoning paths, then uses 5 LLM votes to select the best one.
+        Most sophisticated reasoning approach - explores multiple strategies.
+        
+        ⚠️ WARNING: Very expensive (8 API calls per task: 3 reasoning + 5 voting)
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        tot_reasoning = ReasoningTOT(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=None,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="Tree of Thoughts (TOT)",
+            planning_module=None,
+            reasoning_module=tot_reasoning,
+            memory_module=None
+        )
+    
+    def workflow_with_td_planning(self) -> List[str]:
+        """
+        Workflow using PlanningTD (Temporal Dependencies).
+        
+        Creates plans with explicit temporal dependencies and ordering.
+        Good when task sequence matters (e.g., must get user data before items).
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        td_planning = PlanningTD(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="Temporal Dependencies Planning",
+            planning_module=td_planning,
+            reasoning_module=self.reasoning,
+            memory_module=None
+        )
+    
+    def workflow_with_deps_planning(self) -> List[str]:
+        """
+        Workflow using PlanningDEPS (Multi-Hop Decomposition).
+        
+        Designed specifically for multi-hop reasoning tasks.
+        Perfect for recommendations: user → reviews → items → ranking.
+        Should perform very well due to alignment with task structure.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        deps_planning = PlanningDEPS(llm=self.llm)
+        generative_memory = MemoryGenerative(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="Multi-Hop DEPS Planning",
+            planning_module=deps_planning,
+            reasoning_module=ReasoningCOT(
+                profile_type_prompt='You are an intelligent recommendation system.',
+                memory=generative_memory,
+                llm=self.llm
+            ),
+            memory_module=generative_memory
+        )
+    
+    def workflow_all_voyager(self) -> List[str]:
+        """
+        Full Voyager stack - all Voyager-style modules.
+        
+        Uses consistent subgoal-based approach across planning, reasoning, and memory.
+        Provides cohesive framework with all modules working in same paradigm.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        voyager_planning = PlanningVoyager(llm=self.llm)
+        voyager_memory = MemoryVoyager(llm=self.llm)
+        cot_reasoning = ReasoningCOT(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=voyager_memory,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="All Voyager Stack",
+            planning_module=voyager_planning,
+            reasoning_module=cot_reasoning,
+            memory_module=voyager_memory
+        )
+    
+    def workflow_with_dilu_memory(self) -> List[str]:
+        """
+        Workflow using MemoryDILU (alternative memory strategy).
+        
+        DILU memory designed for task trajectory storage and retrieval.
+        Alternative to MemoryGenerative - compare to see which works better.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        huggingpt_planning = PlanningHUGGINGGPT(llm=self.llm)
+        dilu_memory = MemoryDILU(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="HuggingGPT + DILU Memory",
+            planning_module=huggingpt_planning,
+            reasoning_module=self.reasoning,
+            memory_module=dilu_memory
+        )
+    
+    def workflow_simple_efficient(self) -> List[str]:
+        """
+        Minimal workflow using only ReasoningIO (basic reasoning).
+        
+        Absolute simplest approach - no planning, no memory, just basic reasoning.
+        Good for baseline comparison and speed testing.
+        Fastest and cheapest option.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        io_reasoning = ReasoningIO(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=None,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="Simple Efficient (IO only)",
+            planning_module=None,
+            reasoning_module=io_reasoning,
+            memory_module=None
+        )
+    
+    def workflow_tot_with_memory(self) -> List[str]:
+        """
+        Advanced workflow combining Tree of Thoughts with Trajectory Planning memory.
+        
+        Most sophisticated combination:
+        - ReasoningTOT: Generates 3 paths + 5 votes (8 API calls)
+        - MemoryTP: Trajectory-based planning from past experiences
+        
+        ⚠️ WARNING: VERY EXPENSIVE (8+ API calls per task)
+        Only use for research/benchmarking or critical high-value tasks.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        tp_memory = MemoryTP(llm=self.llm)
+        tot_reasoning = ReasoningTOT(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=tp_memory,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="TOT + TP Memory (VERY EXPENSIVE)",
+            planning_module=None,
+            reasoning_module=tot_reasoning,
+            memory_module=tp_memory
+        )
+    
+    def workflow_deps_self_refine(self) -> List[str]:
+        """
+        Workflow combining Multi-Hop decomposition with iterative refinement.
+        
+        - PlanningDEPS: Multi-hop task decomposition
+        - ReasoningSelfRefine: Initial output + reflection + refinement
+        - MemoryGenerative: Importance-scored memory retrieval
+        
+        Good for complex tasks benefiting from both decomposition and refinement.
+        Expensive but should produce high-quality results.
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        deps_planning = PlanningDEPS(llm=self.llm)
+        generative_memory = MemoryGenerative(llm=self.llm)
+        self_refine_reasoning = ReasoningSelfRefine(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=generative_memory,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="DEPS + Self-Refine + Memory",
+            planning_module=deps_planning,
+            reasoning_module=self_refine_reasoning,
+            memory_module=generative_memory
         )
 
 

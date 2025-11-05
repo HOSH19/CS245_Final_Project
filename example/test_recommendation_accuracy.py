@@ -34,12 +34,22 @@ def create_workflow_agent(workflow_name, llm):
         def workflow(self):
             # Map workflow names to methods
             workflow_map = {
+                # Original workflows
                 'voyager': self.workflow_with_voyager_planning,
                 'self_refine': self.workflow_with_self_refine,
                 'cot_sc': self.workflow_with_cot_sc,
                 'voyager_memory': self.workflow_with_voyager_memory,
                 'openagi': self.workflow_with_openagi_planning,
-                'hybrid': self.workflow_hybrid_advanced
+                'hybrid': self.workflow_hybrid_advanced,
+                # New workflows exploring unused modules
+                'tot': self.workflow_with_tot_reasoning,
+                'td': self.workflow_with_td_planning,
+                'deps': self.workflow_with_deps_planning,
+                'all_voyager': self.workflow_all_voyager,
+                'dilu_memory': self.workflow_with_dilu_memory,
+                'simple': self.workflow_simple_efficient,
+                'tot_memory': self.workflow_tot_with_memory,
+                'deps_refine': self.workflow_deps_self_refine
             }
             
             if workflow_name in workflow_map:
@@ -521,6 +531,8 @@ Examples:
   python test_recommendation_accuracy.py --workflows hybrid cot_sc --num-tasks 5
 
 Available workflows:
+
+ORIGINAL WORKFLOWS:
   default        - Default workflow (StepBack + Generative Memory)
   voyager        - Voyager Planning
   self_refine    - Self-Refine (iterative improvement)
@@ -528,6 +540,16 @@ Available workflows:
   voyager_memory - Voyager Memory (summarized patterns)
   openagi        - OpenAGI Planning (fast and cheap)
   hybrid         - Hybrid Advanced (expensive: 3x cost, best quality)
+
+NEW WORKFLOWS (exploring unused modules):
+  tot            - Tree of Thoughts reasoning (VERY EXPENSIVE: 8x cost)
+  td             - Temporal Dependencies planning
+  deps           - Multi-Hop DEPS planning (perfect for recommendations!)
+  all_voyager    - Full Voyager stack (planning + reasoning + memory)
+  dilu_memory    - HuggingGPT + DILU Memory
+  simple         - Minimal/Fast (IO reasoning only, good baseline)
+  tot_memory     - TOT + TP Memory (EXTREMELY EXPENSIVE: 8+ calls)
+  deps_refine    - DEPS + Self-Refine + Memory (expensive, high quality)
 """
     )
     
@@ -535,7 +557,8 @@ Available workflows:
         '--workflows',
         nargs='+',
         default=['default', 'self_refine', 'openagi'],
-        choices=['default', 'voyager', 'self_refine', 'cot_sc', 'voyager_memory', 'openagi', 'hybrid', 'all'],
+        choices=['default', 'voyager', 'self_refine', 'cot_sc', 'voyager_memory', 'openagi', 'hybrid',
+                 'tot', 'td', 'deps', 'all_voyager', 'dilu_memory', 'simple', 'tot_memory', 'deps_refine', 'all'],
         help='Workflows to test (default: default self_refine openagi)'
     )
     
@@ -563,9 +586,12 @@ Available workflows:
     
     # Handle 'all' option
     if 'all' in args.workflows:
-        workflows = ['default', 'voyager', 'self_refine', 'cot_sc', 'voyager_memory', 'openagi', 'hybrid']
-        print("\n⚠️  WARNING: Testing ALL workflows including expensive ones (COT-SC, Hybrid)")
-        print(f"   This will cost approximately ${args.num_tasks * 0.15:.2f}")
+        workflows = ['default', 'voyager', 'self_refine', 'cot_sc', 'voyager_memory', 'openagi', 'hybrid',
+                     'tot', 'td', 'deps', 'all_voyager', 'dilu_memory', 'simple', 'tot_memory', 'deps_refine']
+        print("\n⚠️  WARNING: Testing ALL workflows including VERY EXPENSIVE ones")
+        print(f"   Total workflows: {len(workflows)}")
+        print(f"   Including: TOT (8x cost), TOT_Memory (8+ calls), COT-SC (5x cost)")
+        print(f"   Estimated cost: ${args.num_tasks * 0.50:.2f} or more")
         response = input("   Continue? (y/n): ")
         if response.lower() != 'y':
             print("Cancelled.")
@@ -574,8 +600,14 @@ Available workflows:
         workflows = args.workflows
         
         # Warn about expensive workflows
-        expensive = set(workflows) & {'cot_sc', 'hybrid'}
-        if expensive:
+        very_expensive = set(workflows) & {'tot', 'tot_memory'}
+        expensive = set(workflows) & {'cot_sc', 'hybrid', 'deps_refine'}
+        
+        if very_expensive:
+            print(f"\n⚠️  WARNING: Testing VERY EXPENSIVE workflows: {', '.join(very_expensive)}")
+            print(f"   These use 8+ API calls per task!")
+            print(f"   Estimated cost: ${args.num_tasks * 0.20:.2f}")
+        elif expensive:
             print(f"\n⚠️  WARNING: Testing expensive workflows: {', '.join(expensive)}")
             print(f"   Estimated cost: ${args.num_tasks * 0.08:.2f}")
     

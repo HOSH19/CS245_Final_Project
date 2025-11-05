@@ -1,0 +1,80 @@
+{
+  "default": {
+    "workflow": "default",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.25,
+        "top_3_hit_rate": 1.0,
+        "top_5_hit_rate": 1.0,
+        "average_hit_rate": 0.75,
+        "total_scenarios": 4,
+        "top_1_hits": 1,
+        "top_3_hits": 4,
+        "top_5_hits": 4
+      },
+      "data_info": {
+        "evaluated_count": 4,
+        "original_simulation_count": 4,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 36.16322112083435,
+    "avg_time_per_task": 9.040805280208588,
+    "num_tasks": 4,
+    "dataset": "yelp",
+    "success": true
+  },
+  "self_refine": {
+    "workflow": "self_refine",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.5,
+        "top_3_hit_rate": 0.75,
+        "top_5_hit_rate": 0.75,
+        "average_hit_rate": 0.6666666666666666,
+        "total_scenarios": 4,
+        "top_1_hits": 2,
+        "top_3_hits": 3,
+        "top_5_hits": 3
+      },
+      "data_info": {
+        "evaluated_count": 4,
+        "original_simulation_count": 4,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 26.73662495613098,
+    "avg_time_per_task": 6.684156239032745,
+    "num_tasks": 4,
+    "dataset": "yelp",
+    "success": true
+  },
+  "openagi": {
+    "workflow": "openagi",
+    "metrics": {
+      "type": "recommendation",
+      "metrics": {
+        "top_1_hit_rate": 0.5,
+        "top_3_hit_rate": 0.75,
+        "top_5_hit_rate": 0.75,
+        "average_hit_rate": 0.6666666666666666,
+        "total_scenarios": 4,
+        "top_1_hits": 2,
+        "top_3_hits": 3,
+        "top_5_hits": 3
+      },
+      "data_info": {
+        "evaluated_count": 4,
+        "original_simulation_count": 4,
+        "original_ground_truth_count": 384
+      }
+    },
+    "execution_time": 2.270578145980835,
+    "avg_time_per_task": 0.5676445364952087,
+    "num_tasks": 4,
+    "dataset": "yelp",
+    "success": true
+  }
+}
