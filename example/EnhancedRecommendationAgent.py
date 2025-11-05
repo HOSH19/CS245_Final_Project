@@ -496,6 +496,167 @@ Now rank the items:
         return unique_list
     
     # ========================================================================
+    # REFACTORED HELPER METHODS TO REDUCE DUPLICATION
+    # ========================================================================
+    
+    def _gather_user_data(self):
+        """
+        Gather user profile and review history.
+        
+        Returns:
+            tuple: (user_info, user_reviews)
+        """
+        user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
+        user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
+        
+        logging.info(f"Retrieved user profile and {len(user_reviews)} reviews")
+        return user_info, user_reviews
+    
+    def _gather_candidate_items(self):
+        """
+        Gather information for all candidate items.
+        
+        Returns:
+            list: List of filtered item information dictionaries
+        """
+        candidate_items = []
+        for item_id in self.task['candidate_list']:
+            try:
+                item = self.interaction_tool.get_item(item_id=item_id)
+                if item:
+                    candidate_items.append(self._filter_item_info(item))
+            except Exception as e:
+                logging.warning(f"Error retrieving item {item_id}: {e}")
+                candidate_items.append({'item_id': item_id})
+        
+        logging.info(f"Retrieved information for {len(candidate_items)} candidate items")
+        return candidate_items
+    
+    def _store_reviews_in_memory(self, user_reviews, memory_module, max_reviews=20):
+        """
+        Store user reviews in a given memory module.
+        
+        Args:
+            user_reviews: List of user review dictionaries
+            memory_module: Memory module instance to store reviews in
+            max_reviews: Maximum number of reviews to store
+        """
+        if user_reviews and memory_module:
+            for review in user_reviews[:max_reviews]:
+                if 'text' in review and review['text']:
+                    review_summary = f"Stars: {review.get('stars', 'N/A')}, Text: {review['text'][:200]}"
+                    memory_module(f"review: {review_summary}")
+            
+            logging.info(f"Stored {min(len(user_reviews), max_reviews)} reviews in memory")
+    
+    def _generate_recommendations_with_reasoning(self, reasoning_module, user_info, 
+                                                  user_reviews, candidate_items, 
+                                                  additional_context=""):
+        """
+        Generate recommendations using a given reasoning module.
+        
+        Args:
+            reasoning_module: Reasoning module instance to use
+            user_info: User profile information
+            user_reviews: List of user reviews
+            candidate_items: List of candidate item information
+            additional_context: Optional additional context to include in prompt
+        
+        Returns:
+            list: Validated ranked list of item IDs
+        """
+        # Create preference summary
+        user_preference_summary = self._analyze_user_preferences(user_reviews)
+        
+        # Add any additional context
+        if additional_context:
+            user_preference_summary += f"\n\n{additional_context}"
+        
+        # Create task description
+        task_description = self._create_recommendation_prompt(
+            user_info=user_info,
+            user_reviews=user_reviews,
+            candidate_items=candidate_items,
+            user_preference_summary=user_preference_summary
+        )
+        
+        # Generate recommendations using reasoning module
+        result = reasoning_module(task_description)
+        
+        # Parse and validate
+        ranked_list = self._parse_recommendation_result(result)
+        validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
+        
+        return validated_list
+    
+    def _execute_generic_workflow(self, workflow_name, planning_module=None, 
+                                   reasoning_module=None, memory_module=None):
+        """
+        Generic workflow template that can be customized with different modules.
+        
+        Args:
+            workflow_name: Name of the workflow (for logging)
+            planning_module: Optional planning module to use (if None, uses simple plan)
+            reasoning_module: Reasoning module to use (if None, uses self.reasoning)
+            memory_module: Optional memory module to use
+        
+        Returns:
+            list: A ranked list of item IDs
+        """
+        try:
+            logging.info(f"Executing {workflow_name}")
+            
+            # Step 1: Create plan (if planning module provided)
+            if planning_module:
+                plan_task = f"Create recommendations for user {self.task['user_id']} from {len(self.task['candidate_list'])} items"
+                plan = planning_module(
+                    task_type='Recommendation',
+                    task_description=plan_task,
+                    feedback='',
+                    few_shot='sub-task 1: {"description": "Get user preferences", "reasoning instruction": "Analyze user history"}'
+                )
+                logging.info(f"Generated plan with {len(plan)} subtasks")
+            
+            # Step 2: Gather user data
+            user_info, user_reviews = self._gather_user_data()
+            
+            # Step 3: Store reviews in memory (if memory module provided)
+            if memory_module:
+                self._store_reviews_in_memory(user_reviews, memory_module)
+                
+                # Retrieve memory context
+                additional_context = ""
+                if user_reviews and len(user_reviews) > 0:
+                    sample_review = user_reviews[0].get('text', '')
+                    if sample_review:
+                        memory_context = memory_module(sample_review[:200])
+                        additional_context = f"Memory Context:\n{memory_context}"
+            else:
+                additional_context = ""
+            
+            # Step 4: Gather candidate items
+            candidate_items = self._gather_candidate_items()
+            
+            # Step 5: Generate recommendations
+            if reasoning_module is None:
+                reasoning_module = self.reasoning
+            
+            validated_list = self._generate_recommendations_with_reasoning(
+                reasoning_module=reasoning_module,
+                user_info=user_info,
+                user_reviews=user_reviews,
+                candidate_items=candidate_items,
+                additional_context=additional_context
+            )
+            
+            logging.info(f"{workflow_name} generated {len(validated_list)} recommendations")
+            return validated_list
+            
+        except Exception as e:
+            logging.error(f"Error in {workflow_name}: {e}", exc_info=True)
+            return self.task['candidate_list']
+    
+    # ========================================================================
     # ALTERNATIVE WORKFLOW METHODS USING DIFFERENT MODULE COMBINATIONS
     # ========================================================================
     
@@ -509,57 +670,13 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using Voyager Planning approach")
-            
-            # Initialize Voyager planning
-            voyager_planning = PlanningVoyager(llm=self.llm)
-            
-            # Create a task description for the planner
-            plan_task = f"Create recommendations for user {self.task['user_id']} from {len(self.task['candidate_list'])} items"
-            
-            # Generate plan using Voyager
-            plan = voyager_planning(
-                task_type='Recommendation',
-                task_description=plan_task,
-                feedback='',
-                few_shot='sub-task 1: {"description": "Get user preferences", "reasoning instruction": "Analyze user history"}'
-            )
-            
-            logging.info(f"Generated Voyager plan with {len(plan)} subtasks")
-            
-            # Execute the plan and gather information
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    logging.warning(f"Error retrieving item {item_id}: {e}")
-                    candidate_items.append({'item_id': item_id})
-            
-            # Use reasoning to generate recommendations
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=self._analyze_user_preferences(user_reviews)
-            )
-            
-            result = self.reasoning(task_description)
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"Voyager workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in Voyager workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        voyager_planning = PlanningVoyager(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="Voyager Planning",
+            planning_module=voyager_planning,
+            reasoning_module=self.reasoning,
+            memory_module=None
+        )
     
     def workflow_with_self_refine(self) -> List[str]:
         """
@@ -571,49 +688,17 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using Self-Refine Reasoning approach")
-            
-            # Initialize self-refine reasoning
-            self_refine_reasoning = ReasoningSelfRefine(
-                profile_type_prompt='You are an intelligent recommendation system.',
-                memory=None,
-                llm=self.llm
-            )
-            
-            # Gather information (simplified for efficiency)
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    candidate_items.append({'item_id': item_id})
-            
-            # Create task description
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=self._analyze_user_preferences(user_reviews)
-            )
-            
-            # Use self-refine reasoning (generates and refines)
-            result = self_refine_reasoning(task_description)
-            
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"Self-Refine workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in Self-Refine workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        self_refine_reasoning = ReasoningSelfRefine(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=None,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="Self-Refine",
+            planning_module=None,
+            reasoning_module=self_refine_reasoning,
+            memory_module=None
+        )
     
     def workflow_with_cot_sc(self) -> List[str]:
         """
@@ -626,49 +711,17 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using COT-SC (Self-Consistency) Reasoning approach")
-            
-            # Initialize COT-SC reasoning
-            cot_sc_reasoning = ReasoningCOTSC(
-                profile_type_prompt='You are an intelligent recommendation system.',
-                memory=None,
-                llm=self.llm
-            )
-            
-            # Gather information
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    candidate_items.append({'item_id': item_id})
-            
-            # Create task description
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=self._analyze_user_preferences(user_reviews)
-            )
-            
-            # Use COT-SC reasoning (generates 5 answers and picks most common)
-            result = cot_sc_reasoning(task_description)
-            
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"COT-SC workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in COT-SC workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        cot_sc_reasoning = ReasoningCOTSC(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=None,
+            llm=self.llm
+        )
+        return self._execute_generic_workflow(
+            workflow_name="COT-SC (Self-Consistency)",
+            planning_module=None,
+            reasoning_module=cot_sc_reasoning,
+            memory_module=None
+        )
     
     def workflow_with_voyager_memory(self) -> List[str]:
         """
@@ -680,62 +733,13 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using Voyager Memory approach")
-            
-            # Initialize Voyager memory
-            voyager_memory = MemoryVoyager(llm=self.llm)
-            
-            # Gather user reviews and store in memory
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            if user_reviews:
-                for review in user_reviews[:20]:
-                    if 'text' in review and review['text']:
-                        review_summary = f"Stars: {review.get('stars', 'N/A')}, Text: {review['text'][:200]}"
-                        voyager_memory(f"review: {review_summary}")
-            
-            # Retrieve relevant context
-            relevant_context = ""
-            if user_reviews and len(user_reviews) > 0:
-                sample_review = user_reviews[0].get('text', '')
-                if sample_review:
-                    relevant_context = voyager_memory(sample_review[:200])
-            
-            # Gather other information
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    candidate_items.append({'item_id': item_id})
-            
-            # Create enhanced task description with memory context
-            user_preference_summary = self._analyze_user_preferences(user_reviews)
-            if relevant_context:
-                user_preference_summary += f"\n\nRelevant Memory Context:\n{relevant_context}"
-            
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=user_preference_summary
-            )
-            
-            result = self.reasoning(task_description)
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"Voyager Memory workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in Voyager Memory workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        voyager_memory = MemoryVoyager(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="Voyager Memory",
+            planning_module=None,
+            reasoning_module=self.reasoning,
+            memory_module=voyager_memory
+        )
     
     def workflow_with_openagi_planning(self) -> List[str]:
         """
@@ -747,54 +751,13 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using OpenAGI Planning approach")
-            
-            # Initialize OpenAGI planning
-            openagi_planning = PlanningOPENAGI(llm=self.llm)
-            
-            # Create plan with OpenAGI
-            plan_task = f"Generate personalized recommendations for user {self.task['user_id']}"
-            plan = openagi_planning(
-                task_type='Recommendation',
-                task_description=plan_task,
-                feedback='',
-                few_shot='sub-task 1: {"description": "Analyze user", "reasoning instruction": "Get preferences"}'
-            )
-            
-            logging.info(f"Generated OpenAGI plan with {len(plan)} subtasks")
-            
-            # Execute minimal information gathering
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    candidate_items.append({'item_id': item_id})
-            
-            # Generate recommendations
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=self._analyze_user_preferences(user_reviews)
-            )
-            
-            result = self.reasoning(task_description)
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"OpenAGI workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in OpenAGI workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        openagi_planning = PlanningOPENAGI(llm=self.llm)
+        return self._execute_generic_workflow(
+            workflow_name="OpenAGI Planning",
+            planning_module=openagi_planning,
+            reasoning_module=self.reasoning,
+            memory_module=None
+        )
     
     def workflow_hybrid_advanced(self) -> List[str]:
         """
@@ -809,82 +772,22 @@ Now rank the items:
         Returns:
             list: A ranked list of item IDs
         """
-        try:
-            logging.info("Using Hybrid Advanced approach (HuggingGPT + TP Memory + COT)")
-            
-            # 1. Initialize all modules
-            huggingpt_planning = PlanningHUGGINGGPT(llm=self.llm)
-            tp_memory = MemoryTP(llm=self.llm)
-            cot_reasoning = ReasoningCOT(
-                profile_type_prompt='You are an intelligent recommendation system.',
-                memory=tp_memory,
-                llm=self.llm
-            )
-            
-            # 2. Create dependency-aware plan
-            plan_task = f"Recommend items for user {self.task['user_id']} considering dependencies between data gathering and analysis"
-            plan = huggingpt_planning(
-                task_type='Recommendation',
-                task_description=plan_task,
-                feedback='',
-                few_shot='sub-task 1: {"description": "Get user data", "reasoning instruction": "Must complete before matching"}'
-            )
-            
-            logging.info(f"Generated HuggingGPT plan with {len(plan)} subtasks")
-            
-            # 3. Gather information and store in trajectory memory
-            user_info = self.interaction_tool.get_user(user_id=self.task['user_id'])
-            user_reviews = self.interaction_tool.get_reviews(user_id=self.task['user_id'])
-            
-            # Store review patterns in trajectory memory
-            if user_reviews:
-                for review in user_reviews[:15]:
-                    if 'text' in review and review['text']:
-                        review_trajectory = f"User rated {review.get('stars', 'N/A')} stars: {review['text'][:150]}"
-                        tp_memory(f"review: {review_trajectory}")
-            
-            # 4. Retrieve trajectory-based plans from memory
-            memory_context = ""
-            if user_reviews and len(user_reviews) > 0:
-                sample_review = user_reviews[0].get('text', '')
-                if sample_review:
-                    memory_context = tp_memory(sample_review[:200])
-            
-            # 5. Gather candidate items
-            candidate_items = []
-            for item_id in self.task['candidate_list']:
-                try:
-                    item = self.interaction_tool.get_item(item_id=item_id)
-                    if item:
-                        candidate_items.append(self._filter_item_info(item))
-                except Exception as e:
-                    candidate_items.append({'item_id': item_id})
-            
-            # 6. Create comprehensive task description with memory insights
-            user_preference_summary = self._analyze_user_preferences(user_reviews)
-            if memory_context:
-                user_preference_summary += f"\n\nTrajectory-Based Insights:\n{memory_context}"
-            
-            task_description = self._create_recommendation_prompt(
-                user_info=user_info,
-                user_reviews=user_reviews,
-                candidate_items=candidate_items,
-                user_preference_summary=user_preference_summary
-            )
-            
-            # 7. Use COT reasoning for step-by-step recommendation
-            result = cot_reasoning(task_description)
-            
-            # 8. Parse and validate
-            ranked_list = self._parse_recommendation_result(result)
-            validated_list = self._validate_recommendations(ranked_list, self.task['candidate_list'])
-            
-            logging.info(f"Hybrid Advanced workflow generated {len(validated_list)} recommendations")
-            return validated_list
-            
-        except Exception as e:
-            logging.error(f"Error in Hybrid Advanced workflow: {e}", exc_info=True)
-            return self.task['candidate_list']
+        # Initialize all modules
+        huggingpt_planning = PlanningHUGGINGGPT(llm=self.llm)
+        tp_memory = MemoryTP(llm=self.llm)
+        cot_reasoning = ReasoningCOT(
+            profile_type_prompt='You are an intelligent recommendation system.',
+            memory=tp_memory,
+            llm=self.llm
+        )
+        
+        # Use generic workflow with all three advanced modules
+        return self._execute_generic_workflow(
+            workflow_name="Hybrid Advanced (HuggingGPT + TP Memory + COT)",
+            planning_module=huggingpt_planning,
+            reasoning_module=cot_reasoning,
+            memory_module=tp_memory
+        )
 
 
 if __name__ == "__main__":
