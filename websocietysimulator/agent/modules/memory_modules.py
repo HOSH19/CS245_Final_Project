@@ -216,6 +216,17 @@ Please fill in this part yourself
 
         Trajectory:
         '''
+        # possible new prompt:
+        # voyager_prompt = '''You are a helpful assistant that writes a description of the task resolution trajectory.
+
+        # 1) Try to summarize the trajectory in no more than 6 sentences.
+        # 2) Your response should be a single line of text.
+
+        # For example:
+        # I first retrieved user preferences, then analyzed the candidate items based on ratings and reviews, compared them against user history, and finally ranked items by relevance score.
+
+        # Trajectory:
+        # '''
         
         # Generate summarized trajectory
         prompt = voyager_prompt + current_situation
