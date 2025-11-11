@@ -1,8 +1,9 @@
 from collections import Counter
+import json
 import re
 
 class ReasoningBase:
-    def __init__(self, profile_type_prompt, memory, llm):
+    def __init__(self, profile_type_prompt, memory, llm, profile_retriever=None):
         """
         Initialize the reasoning base class
         
@@ -10,24 +11,43 @@ class ReasoningBase:
             profile_type_prompt: Profile type prompt
             memory: Memory module
             llm: LLM instance used to generate reasoning
+            profile_retriever: Optional callable returning a user profile dict given user_id
         """
         self.profile_type_prompt = profile_type_prompt
         self.memory = memory
         self.llm = llm
+        self.profile_retriever = profile_retriever
     
-    def process_task_description(self, task_description):
+    def build_prompt_context(self, task_description, user_id: str = None):
+        user_profile = self.get_user_profile(user_id)
+        profile_block = f"\nUser Profile:\n{user_profile}\n" if user_profile else ''
         examples = ''
-        return examples, task_description
+        return examples, profile_block
+
+    def get_user_profile(self, user_id):
+        if not user_id or not self.profile_retriever:
+            return ''
+        profile = self.profile_retriever(user_id)
+        if not profile:
+            return ''
+        if isinstance(profile, dict):
+            return json.dumps(profile, ensure_ascii=False)
+        return str(profile)
+    
+    # def process_task_description(self, task_description):
+    #     examples = ''
+    #     return examples, task_description
 
 class ReasoningIO(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         prompt = '''Your instructions must follow the examples.
 Here are some examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
-        prompt = prompt.format(task_description=task_description, examples=examples)
+        prompt = prompt.format(task_description=task_description, examples=examples, profile_block=profile_block)
         messages = [{"role": "user", "content": prompt}]
         reasoning_result = self.llm(
             messages=messages,
@@ -37,14 +57,15 @@ Here is the task:
         return reasoning_result
     
 class ReasoningCOT(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         prompt = '''Solve the task step by step. Your instructions must follow the examples.
 Here are some examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
-        prompt = prompt.format(task_description=task_description, examples=examples)
+        prompt = prompt.format(task_description=task_description, examples=examples, profile_block=profile_block)
         messages = [{"role": "user", "content": prompt}]
         reasoning_result = self.llm(
             messages=messages,
@@ -53,14 +74,15 @@ Here is the task:
         return reasoning_result
 
 class ReasoningCOTSC(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         prompt = '''Solve the task step by step. Your instructions must follow the examples.
 Here are some examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
-        prompt = prompt.format(task_description=task_description, examples=examples)
+        prompt = prompt.format(task_description=task_description, examples=examples, profile_block=profile_block)
         messages = [{"role": "user", "content": prompt}]
         reasoning_results = self.llm(
             messages=messages,
@@ -72,14 +94,15 @@ Here is the task:
         return reasoning_result
     
 class ReasoningTOT(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         prompt = '''Solve the task step by step. Your instructions must follow the examples.
 Here are some examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
-        prompt = prompt.format(task_description=task_description, examples=examples)
+        prompt = prompt.format(task_description=task_description, examples=examples, profile_block=profile_block)
         messages = [{"role": "user", "content": prompt}]
         reasoning_results = self.llm(
             messages=messages,
@@ -122,8 +145,8 @@ Here is the task:
         return reasoning_results[select_id]
 
 class ReasoningDILU(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         messages = [
             {
                 "role": "system",
@@ -135,6 +158,7 @@ class ReasoningDILU(ReasoningBase):
                 "content": f'''Above messages are some examples of how you make a step successfully in the past. Those scenarios are similar to the current scenario. You should refer to those examples to make a step for the current scenario. Your instructions must follow the examples.
 Here are two examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
             }
@@ -146,14 +170,15 @@ Here is the task:
         return reasoning_result
 
 class ReasoningSelfRefine(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         prompt = '''Solve the task step by step. Your instructions must follow the examples.
 Here are some examples.
 {examples}
+{profile_block}
 Here is the task:
 {task_description}'''
-        prompt = prompt.format(task_description=task_description, examples=examples)
+        prompt = prompt.format(task_description=task_description, examples=examples, profile_block=profile_block)
         messages = [{"role": "user", "content": prompt}]
         reasoning_result = self.llm(
             messages=messages,
@@ -174,13 +199,13 @@ Here is the original reasoning:
         return feedback_result
         
 class ReasoningStepBack(ReasoningBase):
-    def __call__(self, task_description: str, feedback :str= ''):
-        examples, task_description = self.process_task_description(task_description)
+    def __call__(self, task_description: str, feedback :str= '', user_id: str = None):
+        examples, profile_block = self.build_prompt_context(task_description, user_id=user_id)
         self.principle = self.stepback(task_description)
             
         prompt = f'''Solve the task step by step. Your instructions must follow the examples.
 Here are some examples.
-{examples}{self.principle}
+{examples}{profile_block}{self.principle}
 Here is the task:
 {task_description}'''
         messages = [{"role": "user", "content": prompt}]
