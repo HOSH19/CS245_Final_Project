@@ -22,6 +22,10 @@ class ReasoningBase:
         user_profile = self.get_user_profile(user_id)
         profile_block = f"\nUser Profile:\n{user_profile}\n" if user_profile else ''
         examples = ''
+        if self.memory:
+            retrieved_examples = self.memory(task_description)
+            if retrieved_examples:
+                examples = retrieved_examples
         return examples, profile_block
 
     def get_user_profile(self, user_id):
