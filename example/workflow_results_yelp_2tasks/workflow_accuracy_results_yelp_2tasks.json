@@ -2,79 +2,34 @@
   "default": {
     "workflow": "default",
     "metrics": {
-      "type": "recommendation",
-      "metrics": {
-        "top_1_hit_rate": 1.0,
-        "top_3_hit_rate": 1.0,
-        "top_5_hit_rate": 1.0,
-        "average_hit_rate": 1.0,
-        "total_scenarios": 2,
-        "top_1_hits": 2,
-        "top_3_hits": 2,
-        "top_5_hits": 2
-      },
-      "data_info": {
-        "evaluated_count": 2,
-        "original_simulation_count": 2,
-        "original_ground_truth_count": 384
-      }
+      "error": "Can't instantiate abstract class EnhancedRecommendationAgent with abstract method workflow"
     },
-    "execution_time": 31.063770055770874,
-    "avg_time_per_task": 15.531885027885437,
+    "execution_time": 0.00011324882507324219,
+    "avg_time_per_task": 5.6624412536621094e-05,
     "num_tasks": 2,
     "dataset": "yelp",
-    "success": true
+    "success": false
   },
   "self_refine": {
     "workflow": "self_refine",
     "metrics": {
-      "type": "recommendation",
-      "metrics": {
-        "top_1_hit_rate": 0.5,
-        "top_3_hit_rate": 1.0,
-        "top_5_hit_rate": 1.0,
-        "average_hit_rate": 0.8333333333333334,
-        "total_scenarios": 2,
-        "top_1_hits": 1,
-        "top_3_hits": 2,
-        "top_5_hits": 2
-      },
-      "data_info": {
-        "evaluated_count": 2,
-        "original_simulation_count": 2,
-        "original_ground_truth_count": 384
-      }
+      "error": "unterminated string literal (detected at line 1) (<unknown>, line 1)"
     },
-    "execution_time": 14.3197181224823,
-    "avg_time_per_task": 7.15985906124115,
+    "execution_time": 3.8598430156707764,
+    "avg_time_per_task": 1.9299215078353882,
     "num_tasks": 2,
     "dataset": "yelp",
-    "success": true
+    "success": false
   },
   "openagi": {
     "workflow": "openagi",
     "metrics": {
-      "type": "recommendation",
-      "metrics": {
-        "top_1_hit_rate": 1.0,
-        "top_3_hit_rate": 1.0,
-        "top_5_hit_rate": 1.0,
-        "average_hit_rate": 1.0,
-        "total_scenarios": 2,
-        "top_1_hits": 2,
-        "top_3_hits": 2,
-        "top_5_hits": 2
-      },
-      "data_info": {
-        "evaluated_count": 2,
-        "original_simulation_count": 2,
-        "original_ground_truth_count": 384
-      }
+      "error": "unterminated string literal (detected at line 1) (<unknown>, line 1)"
     },
-    "execution_time": 12.404843091964722,
-    "avg_time_per_task": 6.202421545982361,
+    "execution_time": 3.6003310680389404,
+    "avg_time_per_task": 1.8001655340194702,
     "num_tasks": 2,
     "dataset": "yelp",
-    "success": true
+    "success": false
   }
 }

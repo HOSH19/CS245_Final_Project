@@ -96,12 +96,26 @@ def test_workflow(workflow_name, dataset='yelp', num_tasks=10, llm_model='gemini
         # Run simulation
         print(f"Running {num_tasks} tasks...")
         start_time = time.time()
-        outputs = simulator.run_simulation(number_of_tasks=num_tasks)
-        execution_time = time.time() - start_time
-        
-        # Evaluate
-        print("Evaluating results...")
-        metrics = simulator.evaluate()
+        try:
+            simulator.run_simulation(number_of_tasks=num_tasks)
+            execution_time = time.time() - start_time
+
+            # Evaluate
+            print("Evaluating results...")
+            metrics = simulator.evaluate()
+        except Exception as exc:
+            execution_time = time.time() - start_time
+            print(f"\n✗ Error during workflow '{workflow_name}': {exc}")
+            metrics = {"error": str(exc)}
+            return {
+                "workflow": workflow_name,
+                "metrics": metrics,
+                "execution_time": execution_time,
+                "avg_time_per_task": execution_time / max(num_tasks, 1),
+                "num_tasks": num_tasks,
+                "dataset": dataset,
+                "success": False,
+            }
         
         # Add timing info
         result = {
