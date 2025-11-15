@@ -46,6 +46,17 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         self.memory = memory_module
         self.reasoning = reasoning_module
 
+    def workflow(self):
+        """
+        Default workflow using the modules provided at initialization.
+        """
+        return self._execute_generic_workflow(
+            workflow_name="Default Modular Workflow",
+            planning_module=self.planning,
+            memory_module=self.memory,
+            reasoning_module=self.reasoning,
+        )
+
     # ------------------------------------------------------------------ #
     # Shared helpers for workflow mixins
     # ------------------------------------------------------------------ #
@@ -81,24 +92,25 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
             f"Create recommendations for user {self.task['user_id']} "
             f"from {len(self.task['candidate_list'])} items"
         )
-        try:
-            plan = planning_module(
-                task_type="Recommendation",
-                task_description=plan_task,
-                feedback="",
-                few_shot="sub-task 1: {'description': 'Understand user preferences', 'reasoning instruction': 'Review history'}",
-            )
-        except Exception as exc:
-            logging.error(
-                "Planning module %s raised %s. Raw response:\n%s",
-                type(planning_module).__name__,
-                exc,
-                getattr(exc, "args", ["<no args>"])[0],
-            )
-            raise
+        plan = planning_module(
+            task_type="Recommendation",
+            task_description=plan_task,
+            feedback="",
+            few_shot="",
+        )
 
         logging.info("Raw plan output (%s): %s", type(planning_module).__name__, plan)
-        self._validate_plan(plan)
+        try:
+            self._validate_plan(plan)
+        except RuntimeError as exc:
+            raw_llm_output = getattr(planning_module, "last_raw_output", None)
+            if raw_llm_output:
+                logging.error(
+                    "Invalid plan from %s. Raw LLM output:\n%s",
+                    type(planning_module).__name__,
+                    raw_llm_output,
+                )
+            raise exc
         return plan
 
     # ------------------------------------------------------------------ #

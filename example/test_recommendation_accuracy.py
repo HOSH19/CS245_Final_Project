@@ -172,10 +172,13 @@ def compare_workflows(workflows, dataset='yelp', num_tasks=10, llm_model='gemini
     print(f"Workflows to test: {', '.join(workflows)}")
     
     results = {}
+    raw_failures = {}
     
     for workflow_name in workflows:
         result = test_workflow(workflow_name, dataset, num_tasks, llm_model)
         results[workflow_name] = result
+        if result and not result.get("success", False):
+            raw_failures[workflow_name] = result.get("raw_output") or result["metrics"].get("error")
     
     # Print comparison summary
     print_comparison_summary(results, num_tasks)
@@ -192,7 +195,7 @@ def compare_workflows(workflows, dataset='yelp', num_tasks=10, llm_model='gemini
     
     # Save readable summary to text file inside the folder
     txt_file = os.path.join(output_folder, f'workflow_summary_{dataset}_{num_tasks}tasks.txt')
-    save_readable_summary(results, num_tasks, dataset, txt_file)
+    save_readable_summary(results, num_tasks, dataset, txt_file, raw_failures, raw_failures)
     
     print(f"\n{'='*80}")
     print(f"Results saved to:")
@@ -203,7 +206,7 @@ def compare_workflows(workflows, dataset='yelp', num_tasks=10, llm_model='gemini
     return results
 
 
-def save_readable_summary(results, num_tasks, dataset, filename):
+def save_readable_summary(results, num_tasks, dataset, filename, raw_failures=None, all_failures=None):
     """
     Save a readable summary to a text file.
     """
@@ -220,6 +223,11 @@ def save_readable_summary(results, num_tasks, dataset, filename):
         
         if not successful:
             f.write("No successful results.\n")
+            if all_failures:
+                f.write("\nRAW FAILURE OUTPUTS\n")
+                f.write("="*80 + "\n")
+                for workflow_name, raw_text in all_failures.items():
+                    f.write(f"{workflow_name}:\n{raw_text}\n\n")
             return
         
         # Extract metrics
@@ -351,6 +359,12 @@ def save_readable_summary(results, num_tasks, dataset, filename):
             f.write("Unable to determine best overall\n")
         
         f.write("\n" + "="*80 + "\n")
+
+        if raw_failures:
+            f.write("RAW FAILURE OUTPUTS\n")
+            f.write("="*80 + "\n")
+            for workflow_name, raw_text in raw_failures.items():
+                f.write(f"{workflow_name}:\n{raw_text}\n\n")
 
 
 def print_comparison_summary(results, num_tasks):
