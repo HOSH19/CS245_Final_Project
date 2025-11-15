@@ -40,6 +40,7 @@ class EnhancedWorkflowMixin:
             planning_module=voyager_planning,
             memory_module=self.memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_self_refine(self) -> List[str]:
@@ -53,6 +54,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=self_refine_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_cot_sc(self) -> List[str]:
@@ -66,6 +68,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=cot_sc_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_voyager_memory(self) -> List[str]:
@@ -75,6 +78,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=voyager_memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_openagi_planning(self) -> List[str]:
@@ -84,6 +88,7 @@ class EnhancedWorkflowMixin:
             planning_module=openagi_planning,
             memory_module=self.memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_hybrid_advanced(self) -> List[str]:
@@ -99,6 +104,7 @@ class EnhancedWorkflowMixin:
             planning_module=huggingpt_planning,
             memory_module=tp_memory,
             reasoning_module=cot_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_tot_reasoning(self) -> List[str]:
@@ -112,6 +118,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=tot_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_td_planning(self) -> List[str]:
@@ -121,6 +128,7 @@ class EnhancedWorkflowMixin:
             planning_module=td_planning,
             memory_module=self.memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_deps_planning(self) -> List[str]:
@@ -136,6 +144,7 @@ class EnhancedWorkflowMixin:
             planning_module=deps_planning,
             memory_module=generative_memory,
             reasoning_module=cot_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_all_voyager(self) -> List[str]:
@@ -151,6 +160,7 @@ class EnhancedWorkflowMixin:
             planning_module=voyager_planning,
             memory_module=voyager_memory,
             reasoning_module=cot_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_with_dilu_memory(self) -> List[str]:
@@ -161,6 +171,7 @@ class EnhancedWorkflowMixin:
             planning_module=huggingpt_planning,
             memory_module=dilu_memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_simple_efficient(self) -> List[str]:
@@ -174,6 +185,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=io_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_tot_with_memory(self) -> List[str]:
@@ -188,6 +200,7 @@ class EnhancedWorkflowMixin:
             planning_module=self.planning,
             memory_module=tp_memory,
             reasoning_module=tot_reasoning,
+            profile_module=self.profile,
         )
 
     def workflow_deps_self_refine(self) -> List[str]:
@@ -203,5 +216,6 @@ class EnhancedWorkflowMixin:
             planning_module=deps_planning,
             memory_module=generative_memory,
             reasoning_module=self_refine_reasoning,
+            profile_module=self.profile,
         )
 

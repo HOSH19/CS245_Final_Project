@@ -12,6 +12,7 @@ from typing import Dict, List
 
 from websocietysimulator.agent import RecommendationAgent
 
+from .base_agent_schema_validator import AgentSchemaValidator
 from .utils import (
     filter_item_info,
     parse_recommendation_result,
@@ -32,6 +33,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         planning_module,
         memory_module,
         reasoning_module,
+        profile_module=None,
     ):
         super().__init__(llm=llm)
         for name, module in {
@@ -45,6 +47,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         self.planning = planning_module
         self.memory = memory_module
         self.reasoning = reasoning_module
+        self.profile = profile_module
 
     def workflow(self):
         """
@@ -55,6 +58,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=self.reasoning,
+            profile_module=self.profile,
         )
 
     # ------------------------------------------------------------------ #
@@ -67,6 +71,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         planning_module,
         memory_module,
         reasoning_module,
+        profile_module,
     ):
         """
         Shared execution pipeline. Every caller must pass the three modules.
@@ -75,7 +80,8 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
 
         plan = self._generate_plan(planning_module)
         context = self._gather_context(plan)
-        enriched_context = self._integrate_memory(context, memory_module)
+        profiled_context = self._build_profile(context, profile_module)
+        enriched_context = self._integrate_memory(profiled_context, memory_module)
         recommendations = self._reason_and_rank(enriched_context, reasoning_module)
 
         logging.info("%s generated %s recommendations", workflow_name, len(recommendations))
@@ -98,19 +104,9 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
             feedback="",
             few_shot="",
         )
-
-        logging.info("Raw plan output (%s): %s", type(planning_module).__name__, plan)
-        try:
-            self._validate_plan(plan)
-        except RuntimeError as exc:
-            raw_llm_output = getattr(planning_module, "last_raw_output", None)
-            if raw_llm_output:
-                logging.error(
-                    "Invalid plan from %s. Raw LLM output:\n%s",
-                    type(planning_module).__name__,
-                    raw_llm_output,
-                )
-            raise exc
+        # logging.info("Raw plan output (%s): %s", type(planning_module).__name__, plan)
+        AgentSchemaValidator.validate_plan(plan)
+        
         return plan
 
     # ------------------------------------------------------------------ #
@@ -134,14 +130,19 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
                 candidate_items.append(filter_item_info(item) if item else {"item_id": item_id})
             except Exception as exc:  # pylint: disable=broad-except
                 candidate_items.append({"item_id": item_id, "error": str(exc)})
-
+        
+        AgentSchemaValidator.validate_context(
+            user_profile=user_profile,
+            user_reviews=user_reviews,
+            candidate_items=candidate_items,
+            plan=plan,
+        )
         return {
             "plan": plan,
             "user_profile": user_profile,
             "user_reviews": user_reviews,
             "candidate_items": candidate_items,
         }
-        self._validate_context(context)
 
     # ------------------------------------------------------------------ #
     # Memory
@@ -169,7 +170,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
                 if retrieved:
                     context["memory_context"] = f"Memory Context:\n{retrieved}"
 
-        self._validate_memory_context(context.get("memory_context"))
+        AgentSchemaValidator.validate_memory_context(context.get("memory_context"))
         return context
 
     # ------------------------------------------------------------------ #
@@ -190,6 +191,8 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         }
         if context.get("memory_context"):
             payload["memory_context"] = context["memory_context"]
+        if context.get("user_persona"):
+            payload["user_persona"] = context["user_persona"]
 
         task_description = (
             "You are a recommendation system. Use the JSON context below to rank "
@@ -202,27 +205,17 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         ranked_list = parse_recommendation_result(result)
         return validate_recommendations(ranked_list, self.task["candidate_list"])
 
-    # ------------------------------------------------------------------ #
-    # Validation helpers
-    # ------------------------------------------------------------------ #
-    def _validate_plan(self, plan):
-        if not isinstance(plan, list) or not plan:
-            raise RuntimeError("Planning module returned an invalid plan.")
-        for step in plan:
-            if not isinstance(step, dict):
-                raise RuntimeError("Planning step must be a dict.")
-            if "description" not in step or "reasoning instruction" not in step:
-                raise RuntimeError("Planning step missing required keys.")
+    def _build_profile(self, context, profile_module):
+        if profile_module is None:
+            context.setdefault("user_persona", {})
+            return context
 
-    def _validate_context(self, context):
-        required_keys = {"plan", "user_profile", "user_reviews", "candidate_items"}
-        missing = required_keys - context.keys()
-        if missing:
-            raise RuntimeError(f"Context missing keys: {missing}")
-
-    def _validate_memory_context(self, memory_context):
-        if memory_context is None:
-            return
-        if not isinstance(memory_context, str):
-            raise RuntimeError("Memory context must be a string.")
+        persona = profile_module(
+            user_profile=context.get("user_profile"),
+            user_reviews=context.get("user_reviews"),
+            interaction_tool=self.interaction_tool,
+        )
+        AgentSchemaValidator.validate_persona(persona)
+        context["user_persona"] = persona
+        return context
 

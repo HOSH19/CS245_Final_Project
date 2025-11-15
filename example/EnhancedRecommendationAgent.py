@@ -12,6 +12,7 @@ from websocietysimulator.agent.modules.reasoning_modules import ReasoningStepBac
 from websocietysimulator.llm import InfinigenceLLM
 
 from enhanced_agent.base_agent import EnhancedRecommendationAgentBase
+from websocietysimulator.agent.modules.profile_module import StructuredProfileModule
 from enhanced_agent.workflow_mixins import EnhancedWorkflowMixin
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +34,7 @@ class EnhancedRecommendationAgent(EnhancedWorkflowMixin, EnhancedRecommendationA
                 memory=None,
                 llm=llm,
             ),
+            profile_module=StructuredProfileModule(llm),
         )
 
 

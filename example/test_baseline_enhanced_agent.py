@@ -20,14 +20,15 @@ from websocietysimulator.agent.modules.reasoning_modules import ReasoningStepBac
 from GoogleGeminiLLM import GoogleGeminiLLM
 
 from enhanced_agent.base_agent import EnhancedRecommendationAgentBase
+from websocietysimulator.agent.modules.profile_module import StructuredProfileModule
 from enhanced_agent.utils import parse_recommendation_result, validate_recommendations
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 
 
-class BaselineEnhancedAgent(EnhancedRecommendationAgentBase):
+class GenericWorkflowBaselineAgent(EnhancedRecommendationAgentBase):
     """
-    Minimal diagnostic agent that logs intermediate outputs from each module.
+    Companion agent that exercises EnhancedRecommendationAgentBase.workflow.
     """
 
     def __init__(self, llm):
@@ -40,50 +41,8 @@ class BaselineEnhancedAgent(EnhancedRecommendationAgentBase):
                 memory=None,
                 llm=llm,
             ),
+            profile_module=StructuredProfileModule(llm),
         )
-
-    def workflow(self):
-        plan = self._generate_plan(self.planning)
-        logging.info("Generated plan (%d steps):\n%s", len(plan), json.dumps(plan, indent=2))
-
-        context = self._gather_context(plan)
-        logging.info(
-            "Context gathered | user_reviews=%d | candidate_items=%d",
-            len(context["user_reviews"]),
-            len(context["candidate_items"]),
-        )
-
-        enriched_context = self._integrate_memory(context, self.memory)
-        if enriched_context.get("memory_context"):
-            logging.info("Memory context snippet:\n%s", enriched_context["memory_context"])
-        else:
-            logging.info("Memory context empty (no retrieval available).")
-
-        payload = {
-            "user_profile": enriched_context.get("user_profile"),
-            "user_reviews": enriched_context.get("user_reviews"),
-            "candidate_items": enriched_context.get("candidate_items"),
-            "candidate_list": self.task["candidate_list"],
-            "plan": plan,
-        }
-        if enriched_context.get("memory_context"):
-            payload["memory_context"] = enriched_context["memory_context"]
-
-        task_description = (
-            "You are a recommendation system. Use the JSON context below to rank "
-            "candidate items for the specified user. Return ONLY a Python list of "
-            "item IDs drawn from candidate_list.\n"
-            f"CONTEXT:\n{json.dumps(payload, ensure_ascii=False)}"
-        )
-
-        logging.info("Invoking reasoning module...")
-        reasoning_output = self.reasoning(task_description, user_id=self.task["user_id"])
-        logging.info("Raw reasoning output:\n%s", reasoning_output)
-
-        ranked_list = parse_recommendation_result(reasoning_output)
-        validated = validate_recommendations(ranked_list, self.task["candidate_list"])
-        logging.info("Validated recommendation list:\n%s", validated)
-        return validated
 
 
 def parse_args():
@@ -119,10 +78,10 @@ def main():
         task_dir=f"./track2/{args.task_set}/tasks",
         groundtruth_dir=f"./track2/{args.task_set}/groundtruth",
     )
-    simulator.set_agent(BaselineEnhancedAgent)
     simulator.set_llm(llm)
 
-    logging.info("Running %d diagnostic task(s)...", args.num_tasks)
+    simulator.set_agent(GenericWorkflowBaselineAgent)
+    logging.info("Running %d task(s) via EnhancedRecommendationAgentBase.workflow...", args.num_tasks)
     simulator.run_simulation(number_of_tasks=args.num_tasks)
     logging.info("Diagnostic run complete.")
 
