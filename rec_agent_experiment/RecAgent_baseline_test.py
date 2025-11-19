@@ -1,3 +1,7 @@
+import sys, os
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, ROOT)
 import json
 from websocietysimulator import Simulator
 from websocietysimulator.agent import RecommendationAgent
@@ -5,11 +9,20 @@ import tiktoken
 from websocietysimulator.llm import LLMBase, InfinigenceLLM, OpenAILLM
 from websocietysimulator.agent.modules.planning_modules import PlanningBase
 from websocietysimulator.agent.modules.reasoning_modules import ReasoningBase
+from gemini import GeminiLLM
 import re
 import logging
 import time
-import os
+from dotenv import load_dotenv
+from planning_module_custom import PlanningRecommendationVoyager
 
+load_dotenv()
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GEMINI_KEY:
+    raise ValueError("Missing GEMINI_API_KEY in .env file")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,215 +36,174 @@ def num_tokens_from_string(string: str) -> int:
     return a
 
 
-class RecPlanning(PlanningBase):
-    """Inherits from PlanningBase"""
+# llm api connection test only
+def test_llm():
+    api_key_gemini = GEMINI_KEY
+    api_key_openai = OPENAI_API_KEY
+    api_key_google = GOOGLE_API_KEY
+    llm_gemini = GeminiLLM(api_key=api_key_gemini, model="gemini-1.5-pro")
+    llm_openai = OpenAILLM(api_key=api_key_openai, model="gpt-4o")
+    llm_google = GeminiLLM(api_key=api_key_google, model="gemini-2.5-flash")
 
-    def __init__(self, llm):
-        """Initialize the planning module"""
-        super().__init__(llm=llm)
-
-    def create_prompt(self, task_type, task_description, feedback, few_shot):
-        """Override the parent class's create_prompt method"""
-        if feedback == "":
-            prompt = """You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask. Your output format should follow the example below.
-The following are some examples:
-Task: I need to find some information to complete a recommendation task.
-sub-task 1: {{"description": "First I need to find user information", "reasoning instruction": "None"}}
-sub-task 2: {{"description": "Next, I need to find item information", "reasoning instruction": "None"}}
-sub-task 3: {{"description": "Next, I need to find review information", "reasoning instruction": "None"}}
-
-Task: {task_description}
-"""
-            prompt = prompt.format(
-                task_description=task_description, task_type=task_type
-            )
-        else:
-            prompt = """You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask. Your output format should follow the example below.
-The following are some examples:
-Task: I need to find some information to complete a recommendation task.
-sub-task 1: {{"description": "First I need to find user information", "reasoning instruction": "None"}}
-sub-task 2: {{"description": "Next, I need to find item information", "reasoning instruction": "None"}}
-sub-task 3: {{"description": "Next, I need to find review information", "reasoning instruction": "None"}}
-
-end
---------------------
-Reflexion:{feedback}
-Task:{task_description}
-"""
-            prompt = prompt.format(
-                example=few_shot,
-                task_description=task_description,
-                task_type=task_type,
-                feedback=feedback,
-            )
-        return prompt
+    result = llm_google(
+        messages=[{"role": "user", "content": "Say hello briefly."}],
+        temperature=0.1,
+        max_tokens=50,
+    )
+    print("Gemini output:")
+    print(result)
 
 
-class RecReasoning(ReasoningBase):
-    """Inherits from ReasoningBase"""
+def test_planning_module():
+    api_key_gemini = GEMINI_KEY
+    api_key_openai = OPENAI_API_KEY
+    api_key_google = GOOGLE_API_KEY
+    llm_gemini = GeminiLLM(api_key=api_key_gemini, model="gemini-1.5-pro")
+    llm_openai = OpenAILLM(api_key=api_key_openai, model="gpt-4o")
+    llm_google = GeminiLLM(api_key=api_key_google, model="gemini-2.5-flash")
 
-    def __init__(self, profile_type_prompt, llm):
-        """Initialize the reasoning module"""
-        super().__init__(profile_type_prompt=profile_type_prompt, memory=None, llm=llm)
+    print("\n===== TEST: Planning Module (Recommendation Voyager) =====\n")
 
-    def __call__(self, task_description: str):
-        """Override the parent class's __call__ method"""
-        prompt = """
-{task_description}
-"""
-        prompt = prompt.format(task_description=task_description)
+    test_task = {
+        "type": "recommendation",
+        "user_id": "ztgVL0NPadoUwCO9MWeUUQ",
+        "candidate_category": "business - Shopping",
+        "candidate_list": [
+            "OjFr_sk32NOhYSvA_Ucd5Q",
+            "PdBwl7tlFhOBR3p4kMd9Hw",
+            "FbY5HjT_nCqfB8PiXX-fcQ",
+            "oFu61fiwKh6W_zgGjATfyw",
+            "QOUqT4PuH2Xm-ky0R87JNg",
+            "BrO4rhvgGU2vXx4cvVJIpg",
+            "uFs6biPJw2FlVY3taR4QNQ",
+            "pRYs_U3tiTisUazOzDgLaA",
+            "qF1NTfE0yfbTc1kb2mX1FA",
+            "0d7nPS5dv42stQqdZbh08g",
+            "WNFxt2TyMDEuNNNZ9Z9zRQ",
+            "g-cQ3TeR7lcY_TObcDkw6w",
+            "IaelRCI4Ah5oxiHuBnFC7w",
+            "9kfDDNapNWKF5B41X27HkA",
+            "4hmaKbOARJsP_8UfRssQJg",
+            "ClIkpkKO-Es8MHlsfDOKMQ",
+            "OQqBFuA5tcxdHog8YgMRcQ",
+            "ZVrOGpZe5usRbdxxtmxHoQ",
+            "o2oD8bGW3oMaaTeSOqi-Kg",
+            "BzDbphyIfHWZUoaQQdAUYw",
+        ],
+        "loc": [4621600.795281307, 5685269.728156481],
+    }
 
-        messages = [{"role": "user", "content": prompt}]
-        reasoning_result = self.llm(messages=messages, temperature=0.1, max_tokens=1000)
+    # test_task_safe = {
+    #     "type": "recommendation",
+    #     "user_id": test_task["user_id"],
+    #     "candidate_count": len(test_task["candidate_list"]),
+    #     "candidate_category": test_task["candidate_category"],
+    #     "has_location": True,
+    # }
 
-        return reasoning_result
+    # create task_description
+    task_description = json.dumps(test_task, indent=2)
 
-
-class MyRecommendationAgent(RecommendationAgent):
-    """
-    Participant's implementation of SimulationAgent
-    """
-
-    def __init__(self, llm: LLMBase):
-        super().__init__(llm=llm)
-        self.planning = RecPlanning(llm=self.llm)
-        self.reasoning = RecReasoning(profile_type_prompt="", llm=self.llm)
-
-    def workflow(self):
-        """
-        Simulate user behavior
-        Returns:
-            list: Sorted list of item IDs
-        """
-        # plan = self.planning(task_type='Recommendation Task',
-        #                      task_description="Please make a plan to query user information, you can choose to query user, item, and review information",
-        #                      feedback='',
-        #                      few_shot='')
-        # print(f"The plan is :{plan}")
-        plan = [
-            {"description": "First I need to find user information"},
-            {"description": "Next, I need to find item information"},
-            {"description": "Next, I need to find review information"},
-        ]
-
-        user = ""
-        item_list = []
-        history_review = ""
-        for sub_task in plan:
-
-            if "user" in sub_task["description"]:
-                user = str(self.interaction_tool.get_user(user_id=self.task["user_id"]))
-                input_tokens = num_tokens_from_string(user)
-                if input_tokens > 12000:
-                    encoding = tiktoken.get_encoding("cl100k_base")
-                    user = encoding.decode(encoding.encode(user)[:12000])
-
-            elif "item" in sub_task["description"]:
-                for n_bus in range(len(self.task["candidate_list"])):
-                    item = self.interaction_tool.get_item(
-                        item_id=self.task["candidate_list"][n_bus]
-                    )
-                    keys_to_extract = [
-                        "item_id",
-                        "name",
-                        "stars",
-                        "review_count",
-                        "attributes",
-                        "title",
-                        "average_rating",
-                        "rating_number",
-                        "description",
-                        "ratings_count",
-                        "title_without_series",
-                    ]
-                    filtered_item = {
-                        key: item[key] for key in keys_to_extract if key in item
-                    }
-                item_list.append(filtered_item)
-                # print(item)
-            elif "review" in sub_task["description"]:
-                history_review = str(
-                    self.interaction_tool.get_reviews(user_id=self.task["user_id"])
-                )
-                input_tokens = num_tokens_from_string(history_review)
-                if input_tokens > 12000:
-                    encoding = tiktoken.get_encoding("cl100k_base")
-                    history_review = encoding.decode(
-                        encoding.encode(history_review)[:12000]
-                    )
-            else:
-                pass
-        task_description = f"""
-        You are a real user on an online platform. Your historical item review text and stars are as follows: {history_review}. 
-        Now you need to rank the following 20 items: {self.task['candidate_list']} according to their match degree to your preference.
-        Please rank the more interested items more front in your rank list.
-        The information of the above 20 candidate items is as follows: {item_list}.
-
-        Your final output should be ONLY a ranked item list of {self.task['candidate_list']} with the following format, DO NOT introduce any other item ids!
-        DO NOT output your analysis process!
-
-        The correct output format:
-
-        ['item id1', 'item id2', 'item id3', ...]
-
-        """
-        result = self.reasoning(task_description)
-
-        try:
-            # print('Meta Output:',result)
-            match = re.search(r"\[.*\]", result, re.DOTALL)
-            if match:
-                result = match.group()
-            else:
-                print("No list found.")
-            print("Processed Output:", eval(result))
-            # time.sleep(4)
-            return eval(result)
-        except:
-            print("format error")
-            return [""]
+    # create planner,
+    # feedback: for planning validation(validate whether the output is in correct structure or contain required elements. Not yet implemented)
+    # few_shot: param for long-term memory(successful examples)
+    planner = PlanningRecommendationVoyager(llm_google)
+    plan = planner(
+        task_type="Recommendation Task",
+        task_description=task_description,
+        feedback="",
+        few_shot="",
+    )
+    print(plan)
 
 
 if __name__ == "__main__":
-    task_set = "yelp"  # "goodreads" or "yelp"
-    # Initialize Simulator
-    simulator = Simulator(data_dir="./data", device="auto", cache=False)
+    test_planning_module()
 
-    # Load scenarios
-    simulator.set_task_and_groundtruth(
-        task_dir=f"./example/track2/{task_set}/tasks",
-        groundtruth_dir=f"./example/track2/{task_set}/groundtruth",
-    )
 
-    # Set your custom agent
-    simulator.set_agent(MyRecommendationAgent)
+# output_openai:
+# [
+#   {
+#     "description": "Retrieve user profile data for user_id 'ztgVL0NPadoUwCO9MWeUUQ' from the user dataset.",
+#     "reasoning instruction": "Understand the user's preferences and behavior by analyzing their review count, average stars, and any compliments they have received."
+#   },
+#   {
+#     "description": "Retrieve metadata for each item in the candidate_list from the item dataset.",
+#     "reasoning instruction": "Gather information about each business, including their name, average stars, categories, and review count, to assess their general popularity and relevance."
+#   },
+#   {
+#     "description": "Retrieve all reviews written by user_id 'ztgVL0NPadoUwCO9MWeUUQ' from the review dataset.",
+#     "reasoning instruction": "Analyze the user's past reviews to identify patterns in their ratings and preferences, which can help predict their future interests."
+#   },
+#   {
+#     "description": "Retrieve all reviews for each item in the candidate_list from the review dataset.",
+#     "reasoning instruction": "Examine the reviews for each candidate item to understand their strengths and weaknesses from the perspective of other users, which can aid in determining their suitability for the current user."
+#   },
+#   {
+#     "description": "Filter candidate items based on proximity to the user's location (latitude: 4621600.795281307, longitude: 5685269.728156481).",
+#     "reasoning instruction": "Consider the geographical proximity of each business to the user, as closer businesses may be more convenient and thus more relevant."
+#   },
+#   {
+#     "description": "Rank the candidate items based on relevance to the user, considering user preferences, item popularity, review sentiments, and location proximity.",
+#     "reasoning instruction": "Integrate all gathered data to prioritize the candidate items, ensuring the most relevant and appealing options are recommended to the user."
+#   }
+# ]
 
-    # Set LLM client to openai, use gpt-5
-    simulator.set_llm(
-        OpenAILLM(
-            model="gpt-4o",
-            api_key="",
-        )
-    )
 
-    # set llm client to gemini
-    # simulator.set_llm(
-    #     GeminiLLM(
-    #         api_key="", model="gemini-2.5-flash"
-    #     )
-    # )
-
-    # Run evaluation
-    # If you don't set the number of tasks, the simulator will run all tasks.
-    agent_outputs = simulator.run_simulation(
-        number_of_tasks=3, enable_threading=True, max_workers=10
-    )
-
-    # Evaluate the agent
-    evaluation_results = simulator.evaluate()
-    with open(
-        f"./rec_agent_experiment/evaluation_results_track2_{task_set}.json", "w"
-    ) as f:
-        json.dump(evaluation_results, f, indent=4)
-
-    print(f"The evaluation_results is :{evaluation_results}")
+# output_gemini
+# [
+#     {
+#         "step": 1,
+#         "description": "Retrieve the user's profile details and all reviews submitted by the user.",
+#         "reasoning": (
+#             "Analyze the user's historical reviewing behavior, sentiment tendencies, "
+#             "and the categories/business types they frequently interact with. "
+#             "This helps establish their overall preferences and dislikes."
+#         )
+#     },
+#     {
+#         "step": 2,
+#         "description": (
+#             "For each item in `candidate_list`, retrieve detailed metadata including "
+#             "name, categories, star rating, review count, and location."
+#         ),
+#         "reasoning": (
+#             "Provides essential item attributes, which are necessary for aligning "
+#             "the candidates with user preferences and computing geographic proximity."
+#         )
+#     },
+#     {
+#         "step": 3,
+#         "description": (
+#             "Process the user's past review logs to identify commonly reviewed categories, "
+#             "their average ratings for those categories, and sentiment trends—particularly "
+#             "focusing on 'Shopping' or related domains."
+#         ),
+#         "reasoning": (
+#             "Determines which business types the user typically likes or dislikes and "
+#             "reveals preferences specifically related to shopping behaviors."
+#         )
+#     },
+#     {
+#         "step": 4,
+#         "description": (
+#             "For each candidate item, retrieve a sample of its reviews and examine the "
+#             "average star rating and total number of reviews."
+#         ),
+#         "reasoning": (
+#             "Helps understand public perception, extract key pros/cons, and measure "
+#             "overall popularity and external validation for each candidate."
+#         )
+#     },
+#     {
+#         "step": 5,
+#         "description": (
+#             "Using the user's provided `loc` (latitude, longitude) and each candidate "
+#             "item's location, compute geographic distance."
+#         ),
+#         "reasoning": (
+#             "Distance is an important factor in local recommendations. "
+#             "Closer items generally provide better convenience and relevance."
+#         )
+#     }
+# ]
