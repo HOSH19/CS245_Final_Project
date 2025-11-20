@@ -1,5 +1,22 @@
 import re
 import ast
+import logging
+
+SCHEMA_HINT = """Return ONLY valid JSON, no prose.
+Example format:
+[
+  {
+    "description": "concise subtask description",
+    "reasoning instruction": "how to think about it",
+    "tool instruction": "tool usage guidance"
+  }
+]"""
+
+STRICT_SCHEMA_INSTRUCTIONS = f"""STRICT FORMAT REQUIREMENTS:
+1. Output MUST be valid JSON.
+2. Output MUST be a list of objects following this schema:
+{SCHEMA_HINT}
+3. Do NOT include extra commentary or markdown."""
 
 class PlanningBase():
     def __init__(self, llm):
@@ -11,6 +28,7 @@ class PlanningBase():
         """
         self.plan = []
         self.llm = llm
+        self.last_raw_output = ""
     
     def create_prompt(self, task_type, task_description, feedback, few_shot):
         raise NotImplementedError("Subclasses should implement this method")
@@ -24,24 +42,46 @@ class PlanningBase():
             messages=messages,
             temperature=0.1
         )
+        self.last_raw_output = string
         
-        dict_strings = re.findall(r"\{[^{}]*\}", string)
-        dicts = [ast.literal_eval(ds) for ds in dict_strings]
+        try:
+            dict_strings = re.findall(r"\{[^{}]*\}", string)
+            dicts = [ast.literal_eval(ds) for ds in dict_strings]
+        except (ValueError, SyntaxError) as exc:
+            logging.error(
+                "Planning module %s failed to parse LLM output. Prompt:\n%s\nRaw output:\n%s",
+                type(self).__name__,
+                prompt,
+                string,
+            )
+            raise
+
+        if not dicts:
+            logging.warning(
+                "Planning module %s returned no structured plan. Raw output:\n%s",
+                type(self).__name__,
+                string,
+            )
         self.plan = dicts
         return self.plan
     
 class PlanningIO(PlanningBase):
     def create_prompt(self, task_type, task_description, feedback, few_shot):
         if feedback == '':
-            prompt = '''You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
-The following are some examples:
-Task: {example}
+            prompt = '''You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
 
 Task: {task_description}
 '''
-            prompt = prompt.format(example=few_shot, task_description=task_description, task_type=task_type)
+            prompt = prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
-            prompt = '''You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+            prompt = '''You are a planner who divides a {task_type} task into several subtasks. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
+
 The following are some examples:
 Task: {example}
 
@@ -50,21 +90,34 @@ end
 Reflexion:{feedback}
 Task:{task_description}
 '''
-            prompt = prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            prompt = prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
         return prompt
 
 class PlanningDEPS(PlanningBase):
     def create_prompt(self, task_type, task_description, feedback, few_shot):
         if feedback == '':
-            prompt = '''You are a helper AI agent in reasoning. You need to generate the sequences of sub-goals (actions) for a {task_type} task in multi-hop questions. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+            prompt = '''You are a helper AI agent in reasoning. You need to generate the sequences of sub-goals (actions) for a {task_type} task in multi-hop questions. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
 The following are some examples:
 Task: {example}
 
 Task: {task_description}
 '''
-            prompt = prompt.format(example=few_shot, task_description=task_description, task_type=task_type)
+            prompt = prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
-            prompt = '''You are a helper AI agent in reasoning. You need to generate the sequences of sub-goals (actions) for a {task_type} task in multi-hop questions. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+            prompt = '''You are a helper AI agent in reasoning. You need to generate the sequences of sub-goals (actions) for a {task_type} task in multi-hop questions. You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
 The following are some examples:
 Task: {example}
 
@@ -73,7 +126,13 @@ end
 Reflexion:{feedback}
 Task:{task_description}
 '''
-            prompt = prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            prompt = prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
         return prompt
 
 class PlanningTD(PlanningBase):
@@ -81,16 +140,22 @@ class PlanningTD(PlanningBase):
         if feedback == '':
             prompt = '''You are a planner who divides a {task_type} task into several subtasks with explicit temporal dependencies.
 Consider the order of actions and their dependencies to ensure logical sequencing.
-Your output format must follow the example below, specifying the order and dependencies.
+{strict}
 The following are some examples:
 Task: {example}
 
 Task: {task_description}
 '''
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
             prompt = '''You are a planner who divides a {task_type} task into several subtasks with explicit temporal dependencies.
 Consider the order of actions and their dependencies to ensure logical sequencing.
-Your output format should follow the example below, specifying the order and dependencies.
+{strict}
 The following are some examples:
 Task: {example}
 
@@ -99,7 +164,13 @@ end
 Reflexion:{feedback}
 Task:{task_description}
 '''
-        return prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
 
 class PlanningVoyager(PlanningBase):
     def create_prompt(self, task_type, task_description, feedback, few_shot):
@@ -109,19 +180,27 @@ I'll give you a final task, you need to decompose the task into a list of subgoa
 You must follow the following criteria:
 1) Return a  list of subgoals that can be completed in order to complete the specified task.
 2) Give the reasoning instructions for each subgoal and the instructions for calling the tool. 
-You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
 The following are some examples:
 Task: {example}
 
 Task: {task_description}
 '''
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
             prompt = '''You are a helpful assistant that generates subgoals to complete any {task_type} task specified by me.
 I'll give you a final task, you need to decompose the task into a list of subgoals.
 You must follow the following criteria:
 1) Return a list of subgoals that can be completed in order to complete the specified task.
 2) Give the reasoning instructions for each subgoal and the instructions for calling the tool. 
-You also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+You also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
+{strict}
 The following are some examples:
 Task: {example}
 
@@ -130,7 +209,13 @@ end
 reflexion:{feedback}
 task:{task_description}
 '''
-        return prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
 
 class PlanningOPENAGI(PlanningBase):
     def create_prompt(self, task_type, task_description, feedback, few_shot):
@@ -139,18 +224,24 @@ class PlanningOPENAGI(PlanningBase):
 For each task, you also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
 Ensure the list is as short as possible, and tasks in it are relevant, effective and described in a single sentence.
 Develop a concise to-do list to achieve the objective.  
-Your output format should follow the example below.
+{strict}
 The following are some examples:
 Task: {example}
 
 Task: {task_description}
 '''
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
             prompt = '''You are a planner who is an expert at coming up with a todo list for a given {task_type} objective.
 For each task, you also need to give the reasoning instructions for each subtask and the instructions for calling the tool.
 Ensure the list is as short as possible, and tasks in it are relevant, effective and described in a single sentence.
 Develop a concise to-do list to achieve the objective.
-Your output format should follow the example below.
+{strict}
 The following are some examples:
 Task: {example}
 
@@ -159,19 +250,33 @@ end
 Reflexion:{feedback}
 Task:{task_description}
 '''
-        return prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
 
 class PlanningHUGGINGGPT(PlanningBase):
     def create_prompt(self, task_type, task_description, feedback, few_shot):
         if feedback == '':
             prompt = '''You are a planner who divides a {task_type} task into several subtasks. Think step by step about all the tasks needed to resolve the user's request. Parse out as few tasks as possible while ensuring that the user request can be resolved. Pay attention to the dependencies and order among tasks. you also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+{strict}
 The following are some examples:
 Task: {example}
 
 Task: {task_description}
 '''
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+            )
         else:
             prompt = '''You are a planner who divides a {task_type} task into several subtasks. Think step by step about all the tasks needed to resolve the user's request. Parse out as few tasks as possible while ensuring that the user request can be resolved. Pay attention to the dependencies and order among tasks. you also need to give the reasoning instructions for each subtask and the instructions for calling the tool. Your output format should follow the example below.
+{strict}
 The following are some examples:
 Task: {example}
 
@@ -180,4 +285,10 @@ end
 Reflexion:{feedback}
 Task:{task_description}
 '''
-        return prompt.format(example=few_shot, task_description=task_description, task_type=task_type, feedback=feedback)
+            return prompt.format(
+                strict=STRICT_SCHEMA_INSTRUCTIONS,
+                example=few_shot,
+                task_description=task_description,
+                task_type=task_type,
+                feedback=feedback,
+            )
