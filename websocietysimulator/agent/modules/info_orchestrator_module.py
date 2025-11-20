@@ -21,75 +21,50 @@ class InfoOrchestrator:
     
     1. Build query from planner steps (descriptions/reasoning containing relevant keywords)
     2. Call memory module: memory(query) -> calls retriveMemory(query)
-    3. Memory module returns: task_trajectory string from metadata
-       - This is the full execution trajectory of how a similar task was completed
-       - Contains: steps taken, parameters used, successful completion path
-       - Stored as: metadata['task_trajectory'] in the memory database
-    4. Feed task_trajectory to LLM along with current planner steps
-    5. LLM analyzes the past trajectory to extract the most relevant parameter names
+    3. Memory module returns a string (format depends on memory type):
+       - MemoryDILU: task_trajectory strings (execution history)
+       - MemoryGenerative: single task_trajectory string (highest relevance)
+       - MemoryTP: generated plans (derived from task_trajectory)
+       - MemoryVoyager: task_trajectory strings
+    4. Feed memory content to LLM along with current planner steps
+    5. LLM analyzes the past experience to extract the most relevant parameter names
     6. Return extracted parameters (e.g., ["spice_level", "affordability"])
     
-    The task_trajectory is essentially a "memory" of how a similar problem was solved before,
-    and the LLM uses this to determine which profile parameters were most effective.
+    The orchestrator handles all memory module types and adapts the prompt based on
+    the content format (trajectories vs plans). The LLM uses this past experience
+    to determine which profile parameters were most effective.
     """
     
     # Profile type constants
     USER_PROFILE = "user"
     RESTAURANT_PROFILE = "restaurant"
     
-    # Keyword mappings for profile detection
-    PROFILE_KEYWORDS = {
-        USER_PROFILE: [
-            "user", "user's", "user profile", "user behavior", 
-            "review history", "preference", "sentiment", "rating"
-        ],
-        RESTAURANT_PROFILE: [
-            "restaurant", "business", "item", "venue", "establishment",
-            "candidate", "metadata", "location", "categories"
-        ]
-    }
-    
-    # Memory query keywords
-    MEMORY_QUERY_KEYWORDS = {
-        USER_PROFILE: ["user", "review", "preference", "sentiment"],
-        RESTAURANT_PROFILE: ["restaurant", "business", "item", "category"]
-    }
-    
-    # Common parameters for each profile type
-    COMMON_PARAMETERS = {
-        USER_PROFILE: [
-            "spice_level", "affordability", "cuisine_type", "dietary_restrictions",
-            "price_range", "ambiance", "service_quality", "location_preference",
-            "rating_preference", "review_sentiment", "category_preference"
-        ],
-        RESTAURANT_PROFILE: [
-            "cuisine_type", "price_range", "ambiance", "service_quality",
-            "location", "rating", "popularity", "category", "atmosphere",
-            "price_level", "cuisine_style"
-        ]
-    }
-    
-    # Default parameter mappings based on keywords
-    DEFAULT_PARAMETER_MAPPINGS = {
+    # Unified profile configuration
+    PROFILE_CONFIG = {
         USER_PROFILE: {
-            ("spice", "spicy"): "spice_level",
-            ("price", "afford", "cost"): "affordability",
-            ("cuisine", "food"): "cuisine_type",
-            ("category", "type"): "category_preference",
-            ("sentiment", "rating"): "review_sentiment"
+            # Keywords for detecting if user profile is needed
+            "detection_keywords": [
+                "user", "user's", "user profile", "user behavior", 
+                "review history", "preference", "sentiment", "rating"
+            ],
+            # Keywords for building memory queries (subset of detection keywords)
+            "memory_query_keywords": ["user", "review", "preference", "sentiment"],
+            # Example parameters (used for LLM suggestions and as fallback defaults)
+            "example_parameters": [
+                "spice_level", "affordability", "cuisine_type", 
+                "category_preference", "review_sentiment"
+            ]
         },
         RESTAURANT_PROFILE: {
-            ("cuisine", "food"): "cuisine_type",
-            ("price", "afford"): "price_range",
-            ("location", "city"): "location",
-            ("rating", "star"): "rating"
+            "detection_keywords": [
+                "restaurant", "business", "item", "venue", "establishment",
+                "candidate", "metadata", "location", "categories"
+            ],
+            "memory_query_keywords": ["restaurant", "business", "item", "category"],
+            "example_parameters": [
+                "cuisine_type", "price_range", "location", "rating"
+            ]
         }
-    }
-    
-    # Fallback defaults
-    FALLBACK_DEFAULTS = {
-        USER_PROFILE: ["affordability", "category_preference"],
-        RESTAURANT_PROFILE: ["cuisine_type", "price_range"]
     }
 
     def __init__(self, memory=None, llm=None, profile_agent=None, interaction_tool=None):
@@ -158,7 +133,7 @@ class InfoOrchestrator:
 
     def _requires_profile(self, steps: List[Dict[str, Any]], profile_type: str) -> bool:
         """Check if any planner step requires the specified profile type."""
-        keywords = self.PROFILE_KEYWORDS[profile_type]
+        keywords = self.PROFILE_CONFIG[profile_type]["detection_keywords"]
         step_text = json.dumps(steps, default=str).lower()
         return any(keyword in step_text for keyword in keywords)
 
@@ -190,8 +165,11 @@ class InfoOrchestrator:
         # The query is built from planner step descriptions/reasoning
         query = self._build_memory_query(steps, profile_type)
         
-        # Call memory module: memory(query) -> retriveMemory(query) -> returns task_trajectory string
-        # The task_trajectory contains the full execution path of a similar past task
+        # Call memory module: memory(query) -> retriveMemory(query) -> returns string
+        # Return format depends on memory type:
+        # - MemoryDILU/Voyager: task_trajectory strings
+        # - MemoryGenerative: single task_trajectory string
+        # - MemoryTP: generated plans (derived from task_trajectory)
         memory_result = self.memory(query) if query else ""
         
         if not memory_result:
@@ -204,7 +182,7 @@ class InfoOrchestrator:
 
     def _build_memory_query(self, steps: List[Dict[str, Any]], profile_type: str) -> str:
         """Build a query string from planner steps to search memory."""
-        keywords = self.MEMORY_QUERY_KEYWORDS[profile_type]
+        keywords = self.PROFILE_CONFIG[profile_type]["memory_query_keywords"]
         related_descriptions = []
         
         for step in steps:
@@ -228,11 +206,11 @@ class InfoOrchestrator:
         Use LLM to extract the best parameter names from memory content.
         
         Args:
-            memory_result: The task_trajectory string retrieved from memory. This contains:
-                - The full execution trajectory of a similar past task
-                - Information about successful parameter usage in previous tasks
-                - The complete path taken to solve a similar problem
-                - Stored as metadata['task_trajectory'] in the memory module
+            memory_result: The memory content retrieved from memory module. This can be:
+                - MemoryDILU: task_trajectory strings (execution history)
+                - MemoryGenerative: task_trajectory string (highest relevance score)
+                - MemoryTP: generated plans derived from task_trajectory
+                - MemoryVoyager: task_trajectory strings
             steps: Planner steps for context
             profile_type: "user" or "restaurant"
             
@@ -240,17 +218,24 @@ class InfoOrchestrator:
             List of parameter names extracted by LLM
             
         Note:
-            The memory_result is the 'task_trajectory' field from memory metadata, which is a string
-            containing the complete execution history of how a similar task was successfully completed.
-            The LLM analyzes this trajectory to identify which profile parameters were most relevant
-            and effective in the past, then extracts them for use in the current task.
+            Different memory modules return different formats, but all are strings containing
+            information about how similar tasks were completed. The LLM analyzes this content
+            to identify which profile parameters were most relevant and effective.
         """
         if not self.llm or not memory_result:
             return []
         
-        common_parameters = self.COMMON_PARAMETERS[profile_type]
+        config = self.PROFILE_CONFIG[profile_type]
+        example_params = config.get("example_parameters", [])
+        
         profile_description = "user profile" if profile_type == self.USER_PROFILE else "restaurant/business profile"
         step_context = json.dumps(steps, default=str, indent=2)
+        
+        # Detect memory content type for better prompt context
+        memory_type_description = self._detect_memory_content_type(memory_result)
+        
+        # Build parameter examples text (optional guidance)
+        param_examples = f"\n\nExample parameters you might consider: {', '.join(example_params)}" if example_params else ""
         
         prompt = f"""You are analyzing planner steps and memory content to determine the best parameters 
 for a {profile_description} schema.
@@ -262,15 +247,12 @@ to structure profile data for recommendation systems.
 Planner Steps:
 {step_context}
 
-Memory Content (task_trajectory from similar past experiences):
-This is the full execution trajectory of how a similar task was successfully completed in the past.
-It contains information about what steps were taken, what parameters were used, and how the task succeeded.
-Analyze this trajectory to identify which profile parameters were most effective.
+Memory Content ({memory_type_description}):
+This content contains information from similar past experiences about how similar tasks were successfully 
+completed. It may include execution trajectories, plans, or strategies that worked in the past.
+Analyze this content to identify which profile parameters were most effective or relevant.
 
-{memory_result}
-
-Common parameters you might consider (but you can suggest others if more relevant):
-{', '.join(common_parameters)}
+{memory_result}{param_examples}
 
 Analyze the memory content carefully. What parameters are most relevant based on:
 1. What the planner steps are trying to accomplish
@@ -294,6 +276,29 @@ Return only the JSON array, no additional text or explanation:
         except Exception:
             return []
 
+    def _detect_memory_content_type(self, memory_result: str) -> str:
+        """
+        Detect the type of memory content to provide better context in prompts.
+        
+        Args:
+            memory_result: The memory content string
+            
+        Returns:
+            Description of the memory content type
+        """
+        memory_lower = memory_result.lower()
+        
+        # MemoryTP returns plans with this prefix
+        if "plan from successful attempt" in memory_lower or "plan:" in memory_lower:
+            return "generated plans from similar past experiences"
+        
+        # MemoryDILU, MemoryGenerative, MemoryVoyager return task trajectories
+        if "trajectory" in memory_lower or "steps" in memory_lower or "retrieved" in memory_lower:
+            return "task trajectory from similar past experiences"
+        
+        # Default description
+        return "memory content from similar past experiences"
+    
     def _parse_llm_response(self, response: str) -> List[str]:
         """Parse and validate LLM response to extract parameter list."""
         response_clean = response.strip()
@@ -321,16 +326,17 @@ Return only the JSON array, no additional text or explanation:
         return []
 
     def _get_default_parameters(self, steps: List[Dict[str, Any]], profile_type: str) -> List[str]:
-        """Get default parameters based on step analysis."""
-        step_text = json.dumps(steps, default=str).lower()
-        defaults = []
-        mappings = self.DEFAULT_PARAMETER_MAPPINGS[profile_type]
+        """
+        Get fallback default parameters when memory/LLM is unavailable.
         
-        for keywords, param_name in mappings.items():
-            if any(keyword in step_text for keyword in keywords):
-                defaults.append(param_name)
-        
-        return defaults or self.FALLBACK_DEFAULTS[profile_type]
+        Note: We don't extract parameters from planner steps - steps are just 
+        instructions to follow. Parameters come from memory analysis or fallback defaults.
+        Uses first 2 example parameters as fallback (most essential ones).
+        """
+        config = self.PROFILE_CONFIG[profile_type]
+        example_params = config.get("example_parameters", [])
+        # Use first 2 as fallback (most essential)
+        return example_params[:2] if len(example_params) >= 2 else example_params
 
     def _call_profile_agent(
         self, 
