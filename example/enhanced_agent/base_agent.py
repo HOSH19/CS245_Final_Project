@@ -33,13 +33,14 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         planning_module,
         memory_module,
         reasoning_module,
-        profile_module=None,
+        info_orchestrator,
     ):
         super().__init__(llm=llm)
         for name, module in {
             "planning_module": planning_module,
             "memory_module": memory_module,
             "reasoning_module": reasoning_module,
+            "info_orchestrator": info_orchestrator,
         }.items():
             if module is None:
                 raise ValueError(f"{name} must not be None")
@@ -47,7 +48,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         self.planning = planning_module
         self.memory = memory_module
         self.reasoning = reasoning_module
-        self.profile = profile_module
+        self.info_orchestrator = info_orchestrator
 
     def workflow(self):
         """
@@ -58,7 +59,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
             planning_module=self.planning,
             memory_module=self.memory,
             reasoning_module=self.reasoning,
-            profile_module=self.profile,
+            info_orchestrator=self.info_orchestrator,
         )
 
     # ------------------------------------------------------------------ #
@@ -71,7 +72,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         planning_module,
         memory_module,
         reasoning_module,
-        profile_module,
+        info_orchestrator,
     ):
         """
         Shared execution pipeline. Every caller must pass the three modules.
@@ -80,7 +81,7 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
 
         plan = self._generate_plan(planning_module)
         context = self._gather_context(plan)
-        profiled_context = self._build_profile(context, profile_module)
+        profiled_context = self._build_profile(context, info_orchestrator)
         enriched_context = self._integrate_memory(profiled_context, memory_module)
         recommendations = self._reason_and_rank(enriched_context, reasoning_module)
 
@@ -205,17 +206,57 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         ranked_list = parse_recommendation_result(result)
         return validate_recommendations(ranked_list, self.task["candidate_list"])
 
-    def _build_profile(self, context, profile_module):
-        if profile_module is None:
-            context.setdefault("user_persona", {})
-            return context
-
-        persona = profile_module(
-            user_profile=context.get("user_profile"),
-            user_reviews=context.get("user_reviews"),
-            interaction_tool=self.interaction_tool,
+    def _build_profile(self, context, info_orchestrator):
+        """
+        Build user/book/item profiles using InfoOrchestrator.
+        
+        Workflow:
+        1. InfoOrchestrator analyzes planner steps
+        2. Retrieves parameters from memory
+        3. Calls schema_fitter to build profiles
+        4. Returns consolidated profiles
+        """
+        logging.info("=" * 80)
+        logging.info("BUILD_PROFILE: Starting profile generation workflow")
+        logging.info("=" * 80)
+        
+        plan = context.get("plan", [])
+        user_id = self.task.get("user_id")
+        
+        # Get first candidate item_id for book/item profile (optional)
+        candidate_list = self.task.get("candidate_list", [])
+        item_id = candidate_list[0] if candidate_list else None
+        
+        logging.info(f"  Preparing to call InfoOrchestrator:")
+        logging.info(f"    - Planner steps: {len(plan)} steps")
+        logging.info(f"    - User ID: {user_id}")
+        logging.info(f"    - Item ID: {item_id}")
+        
+        # Call InfoOrchestrator with planner steps
+        profile_results = info_orchestrator(
+            planner_steps=plan,
+            user_id=user_id,
+            item_id=item_id
         )
-        AgentSchemaValidator.validate_persona(persona)
-        context["user_persona"] = persona
+        
+        logging.info("BUILD_PROFILE: Received profiles from InfoOrchestrator")
+        logging.info(f"  Profile results keys: {list(profile_results.keys())}")
+        
+        # Store profiles in context
+        if profile_results.get("user_profile"):
+            context["user_persona"] = profile_results["user_profile"]
+            logging.info(f"  Stored user_profile in context['user_persona'] with keys: {list(profile_results['user_profile'].keys())}")
+        else:
+            context.setdefault("user_persona", {})
+            logging.info("  No user_profile returned, using empty dict")
+        
+        if profile_results.get("item_profile"):
+            context["item_profile"] = profile_results["item_profile"]
+            logging.info(f"  Stored book/item profile in context with keys: {list(profile_results['item_profile'].keys())}")
+        else:
+            logging.info("  No book/item profile returned")
+        
+        logging.info("BUILD_PROFILE: Profile generation complete")
+        logging.info("=" * 80)
         return context
 

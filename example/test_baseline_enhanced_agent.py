@@ -20,8 +20,9 @@ from websocietysimulator.agent.modules.reasoning_modules import ReasoningStepBac
 from GoogleGeminiLLM import GoogleGeminiLLM
 
 from enhanced_agent.base_agent import EnhancedRecommendationAgentBase
-from websocietysimulator.agent.modules.profile_module import StructuredProfileModule
 from enhanced_agent.utils import parse_recommendation_result, validate_recommendations
+from websocietysimulator.agent.modules.info_orchestrator_module import InfoOrchestrator
+from websocietysimulator.agent.modules.schemafitter_module import SchemaFitterIO
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 
@@ -29,25 +30,61 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 class GenericWorkflowBaselineAgent(EnhancedRecommendationAgentBase):
     """
     Companion agent that exercises EnhancedRecommendationAgentBase.workflow.
+    Uses InfoOrchestrator for profile generation.
     """
 
     def __init__(self, llm):
+        """
+        Initialize the baseline agent.
+        
+        Args:
+            llm: LLM instance
+        """
+        planning = PlanningIO(llm)
+        memory = MemoryGenerative(llm)
+        reasoning = ReasoningStepBack(
+            profile_type_prompt="You are an intelligent recommendation system.",
+            memory=None,
+            llm=llm,
+        )
+        
+        # Initialize InfoOrchestrator
+        # SchemaFitterIO will be initialized with interaction_tool later
+        info_orchestrator = InfoOrchestrator(
+            memory=memory,
+            llm=llm,
+            schema_fitter=None,  # Will be set when interaction_tool is available
+            interaction_tool=None  # Will be set when interaction_tool is available
+        )
+        
         super().__init__(
             llm=llm,
-            planning_module=PlanningIO(llm),
-            memory_module=MemoryGenerative(llm),
-            reasoning_module=ReasoningStepBack(
-                profile_type_prompt="You are an intelligent recommendation system.",
-                memory=None,
-                llm=llm,
-            ),
-            profile_module=StructuredProfileModule(llm),
+            planning_module=planning,
+            memory_module=memory,
+            reasoning_module=reasoning,
+            info_orchestrator=info_orchestrator,
         )
+        
+        # Store for later initialization
+        self._schema_fitter_llm = llm
+    
+    def insert_task(self, task):
+        """
+        Override insert_task to initialize InfoOrchestrator with interaction_tool.
+        """
+        super().insert_task(task)
+        
+        # Initialize InfoOrchestrator's schema_fitter and interaction_tool
+        if self.info_orchestrator and self.interaction_tool:
+            if self.info_orchestrator.schema_fitter is None:
+                schema_fitter = SchemaFitterIO(self._schema_fitter_llm, self.interaction_tool)
+                self.info_orchestrator.schema_fitter = schema_fitter
+                self.info_orchestrator.interaction_tool = self.interaction_tool
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Baseline diagnostic agent runner")
-    parser.add_argument("--task-set", default="yelp", choices=["yelp", "amazon", "goodreads"])
+    parser.add_argument("--task-set", default="goodreads", choices=["yelp", "amazon", "goodreads"])
     parser.add_argument("--num-tasks", type=int, default=1, help="Number of tasks to run (default: 1)")
     default_data_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../data_processed"))
     parser.add_argument(
@@ -58,12 +95,8 @@ def parse_args():
     parser.add_argument(
         "--model",
         default="gemini-2.0-flash",
-        help="LLM model identifier for InfinigenceLLM (default: gemini-2.0-flash)",
-    )
-    parser.add_argument(
-        "--api-key",
-        default="your_api_key_here",
-        help="API key for the selected LLM backend",
+        help="LLM model identifier (default: gemini-2.0-flash). "
+             "Note: API key must be set via GOOGLE_API_KEY environment variable.",
     )
     return parser.parse_args()
 
@@ -81,7 +114,8 @@ def main():
     simulator.set_llm(llm)
 
     simulator.set_agent(GenericWorkflowBaselineAgent)
-    logging.info("Running %d task(s) via EnhancedRecommendationAgentBase.workflow...", args.num_tasks)
+    logging.info("Running %d task(s) via EnhancedRecommendationAgentBase.workflow with InfoOrchestrator...", 
+                 args.num_tasks)
     simulator.run_simulation(number_of_tasks=args.num_tasks)
     logging.info("Diagnostic run complete.")
 

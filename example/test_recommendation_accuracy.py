@@ -26,6 +26,10 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 def create_workflow_agent(workflow_name, llm):
     """
     Create an agent class that uses a specific workflow.
+    
+    Args:
+        workflow_name: Name of the workflow to use
+        llm: LLM instance
     """
     if workflow_name == 'default':
         return EnhancedRecommendationAgent
@@ -60,7 +64,7 @@ def create_workflow_agent(workflow_name, llm):
     return WorkflowAgent
 
 
-def test_workflow(workflow_name, dataset='yelp', num_tasks=10, llm_model='gemini-2.0-flash'):
+def test_workflow(workflow_name, dataset='goodreads', num_tasks=10, llm_model='gemini-2.0-flash'):
     """
     Test a specific workflow and return accuracy metrics.
     
@@ -150,7 +154,7 @@ def test_workflow(workflow_name, dataset='yelp', num_tasks=10, llm_model='gemini
         }
 
 
-def compare_workflows(workflows, dataset='yelp', num_tasks=10, llm_model='gemini-2.0-flash'):
+def compare_workflows(workflows, dataset='goodreads', num_tasks=10, llm_model='gemini-2.0-flash'):
     """
     Compare multiple workflows and determine which performs best.
     
@@ -587,7 +591,7 @@ NEW WORKFLOWS (exploring unused modules):
         default=['default', 'self_refine', 'openagi'],
         choices=['default', 'voyager', 'self_refine', 'cot_sc', 'voyager_memory', 'openagi', 'hybrid',
                  'tot', 'td', 'deps', 'all_voyager', 'dilu_memory', 'simple', 'tot_memory', 'deps_refine', 'all'],
-        help='Workflows to test (default: default self_refine openagi)'
+        help='Workflows to test (default: default self_refine openagi). All workflows use InfoOrchestrator for profile generation.'
     )
     
     parser.add_argument(
@@ -600,8 +604,8 @@ NEW WORKFLOWS (exploring unused modules):
     parser.add_argument(
         '--dataset',
         choices=['yelp', 'amazon', 'goodreads'],
-        default='yelp',
-        help='Dataset to use (default: yelp)'
+        default='goodreads',
+        help='Dataset to use (default: goodreads)'
     )
     
     parser.add_argument(

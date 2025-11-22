@@ -12,7 +12,6 @@ from websocietysimulator.agent.modules.reasoning_modules import ReasoningStepBac
 from websocietysimulator.llm import InfinigenceLLM
 
 from enhanced_agent.base_agent import EnhancedRecommendationAgentBase
-from websocietysimulator.agent.modules.profile_module import StructuredProfileModule
 from enhanced_agent.workflow_mixins import EnhancedWorkflowMixin
 
 logging.basicConfig(level=logging.INFO)
@@ -25,17 +24,56 @@ class EnhancedRecommendationAgent(EnhancedWorkflowMixin, EnhancedRecommendationA
     """
 
     def __init__(self, llm):
+        """
+        Initialize the enhanced recommendation agent.
+        
+        Args:
+            llm: LLM instance
+        """
+        from websocietysimulator.agent.modules.info_orchestrator_module import InfoOrchestrator
+        
+        planning = PlanningIO(llm)
+        memory = MemoryGenerative(llm)
+        reasoning = ReasoningStepBack(
+            profile_type_prompt="You are an intelligent recommendation system.",
+            memory=None,
+            llm=llm,
+        )
+        
+        # Initialize InfoOrchestrator
+        # SchemaFitterIO will be initialized with interaction_tool later
+        info_orchestrator = InfoOrchestrator(
+            memory=memory,
+            llm=llm,
+            schema_fitter=None,  # Will be set when interaction_tool is available
+            interaction_tool=None  # Will be set when interaction_tool is available
+        )
+        
         super().__init__(
             llm=llm,
-            planning_module=PlanningIO(llm),
-            memory_module=MemoryGenerative(llm),
-            reasoning_module=ReasoningStepBack(
-                profile_type_prompt="You are an intelligent recommendation system.",
-                memory=None,
-                llm=llm,
-            ),
-            profile_module=StructuredProfileModule(llm),
+            planning_module=planning,
+            memory_module=memory,
+            reasoning_module=reasoning,
+            info_orchestrator=info_orchestrator,
         )
+        
+        # Store for later initialization
+        self._schema_fitter_llm = llm
+    
+    def insert_task(self, task):
+        """
+        Override insert_task to initialize InfoOrchestrator with interaction_tool.
+        """
+        super().insert_task(task)
+        
+        # Initialize InfoOrchestrator's schema_fitter and interaction_tool
+        if self.info_orchestrator and self.interaction_tool:
+            from websocietysimulator.agent.modules.schemafitter_module import SchemaFitterIO
+            
+            if self.info_orchestrator.schema_fitter is None:
+                schema_fitter = SchemaFitterIO(self._schema_fitter_llm, self.interaction_tool)
+                self.info_orchestrator.schema_fitter = schema_fitter
+                self.info_orchestrator.interaction_tool = self.interaction_tool
 
 
 if __name__ == "__main__":
