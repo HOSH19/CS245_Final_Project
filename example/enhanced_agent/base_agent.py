@@ -232,11 +232,12 @@ class EnhancedRecommendationAgentBase(RecommendationAgent):
         logging.info(f"    - User ID: {user_id}")
         logging.info(f"    - Item ID: {item_id}")
         
-        # Call InfoOrchestrator with planner steps
+        # Call InfoOrchestrator with planner steps and candidate list
         profile_results = info_orchestrator(
             planner_steps=plan,
             user_id=user_id,
-            item_id=item_id
+            item_id=item_id,
+            candidate_list=candidate_list
         )
         
         logging.info("BUILD_PROFILE: Received profiles from InfoOrchestrator")

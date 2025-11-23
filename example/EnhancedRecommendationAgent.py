@@ -73,7 +73,14 @@ class EnhancedRecommendationAgent(EnhancedWorkflowMixin, EnhancedRecommendationA
             if self.info_orchestrator.schema_fitter is None:
                 schema_fitter = SchemaFitterIO(self._schema_fitter_llm, self.interaction_tool)
                 self.info_orchestrator.schema_fitter = schema_fitter
-                self.info_orchestrator.interaction_tool = self.interaction_tool
+            
+            # Always update interaction_tool (it may be None initially)
+            self.info_orchestrator.interaction_tool = self.interaction_tool
+            # Update retrievers' interaction_tool
+            if self.info_orchestrator.user_retriever:
+                self.info_orchestrator.user_retriever.interaction_tool = self.interaction_tool
+            if self.info_orchestrator.item_retriever:
+                self.info_orchestrator.item_retriever.interaction_tool = self.interaction_tool
 
 
 if __name__ == "__main__":
