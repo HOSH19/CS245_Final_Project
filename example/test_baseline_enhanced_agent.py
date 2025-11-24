@@ -2,7 +2,7 @@
 Test workflow function for testing different recommendation workflows.
 
 Usage:
-    python test_baseline_enhanced_agent.py --workflow openagi --num-tasks 5
+    python test_baseline_enhanced_agent.py --workflow openagi --num-tasks 1
     python test_baseline_enhanced_agent.py --workflow default --task-set goodreads --num-tasks 10
 """
 
