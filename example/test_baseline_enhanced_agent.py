@@ -10,6 +10,12 @@ import argparse
 import logging
 import os
 import time
+import sys
+import pathlib
+
+# Ensure project root is on sys.path so imports work when running from `example/`
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
 
 from websocietysimulator import Simulator
 from GoogleGeminiLLM import GoogleGeminiLLM
@@ -85,7 +91,7 @@ def test_workflow(workflow_name, dataset='goodreads', num_tasks=10, llm_model='g
         # Initialize Simulator
         if data_dir is None:
             data_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "../data_processed"))
-        simulator = Simulator(data_dir=data_dir, cache=True)
+        simulator = Simulator(data_dir=data_dir, cache=False)
         simulator.set_task_and_groundtruth(
             task_dir=f'./track2/{dataset}/tasks',
             groundtruth_dir=f'./track2/{dataset}/groundtruth'
