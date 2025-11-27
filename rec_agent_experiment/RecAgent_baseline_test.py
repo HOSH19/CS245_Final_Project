@@ -8,13 +8,20 @@ from websocietysimulator.agent import RecommendationAgent
 import tiktoken
 from websocietysimulator.llm import LLMBase, InfinigenceLLM, OpenAILLM
 from websocietysimulator.agent.modules.planning_modules import PlanningBase
-from websocietysimulator.agent.modules.reasoning_modules import ReasoningBase
+from websocietysimulator.agent.modules.reasoning_modules import (
+    ReasoningBase,
+    ReasoningIO,
+)
+from websocietysimulator.agent.modules.info_orchestrator_module import InfoOrchestrator
+from websocietysimulator.agent.modules.schemafitter_module import SchemaFitterIO
+from websocietysimulator.tools.interaction_tool import InteractionTool
 from gemini import GeminiLLM
 import re
 import logging
 import time
 from dotenv import load_dotenv
-from planning_module_custom import *
+from websocietysimulator.agent.modules.planning_module_custom import *
+from websocietysimulator.agent.modules.memory_modules_custom import *
 
 load_dotenv()
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
@@ -62,7 +69,6 @@ def load_first_task(dataset="goodreads"):
 
     base_path = f"./example/track2/{dataset}/tasks"
 
-    # 找到所有 task_*.json
     task_files = sorted(
         [
             f
@@ -74,7 +80,7 @@ def load_first_task(dataset="goodreads"):
     if not task_files:
         raise FileNotFoundError(f"No task files found in {base_path}")
 
-    # 默认读取第一个文件 (task_0.json)
+    # read_first_file (task_0.json)
     first_file = os.path.join(base_path, task_files[0])
     print(f"Loading task file: {first_file}")
 
@@ -84,160 +90,211 @@ def load_first_task(dataset="goodreads"):
     return task
 
 
-def test_planning_module():
-    api_key_gemini = GEMINI_KEY
-    api_key_openai = OPENAI_API_KEY
-    api_key_google = GOOGLE_API_KEY
-    llm_gemini = GeminiLLM(api_key=api_key_gemini, model="gemini-1.5-pro")
-    llm_openai = OpenAILLM(api_key=api_key_openai, model="gpt-4o")
-    llm_google = GeminiLLM(api_key=api_key_google, model="gemini-2.5-flash")
+def load_first_groundtruth(dataset="goodreads"):
+    """
+    dataset: 'goodreads' or 'amazon' or 'yelp'
+    Returns: the parsed task dict
+    """
 
-    print("\n===== TEST: Planning Module (Recommendation Voyager) =====\n")
+    base_path = f"./example/track2/{dataset}/groundtruth"
 
-    # test_task = {
-    #     "type": "recommendation",
-    #     "user_id": "ztgVL0NPadoUwCO9MWeUUQ",
-    #     "candidate_category": "business - Shopping",
-    #     "candidate_list": [
-    #         "OjFr_sk32NOhYSvA_Ucd5Q",
-    #         "PdBwl7tlFhOBR3p4kMd9Hw",
-    #         "FbY5HjT_nCqfB8PiXX-fcQ",
-    #         "oFu61fiwKh6W_zgGjATfyw",
-    #         "QOUqT4PuH2Xm-ky0R87JNg",
-    #         "BrO4rhvgGU2vXx4cvVJIpg",
-    #         "uFs6biPJw2FlVY3taR4QNQ",
-    #         "pRYs_U3tiTisUazOzDgLaA",
-    #         "qF1NTfE0yfbTc1kb2mX1FA",
-    #         "0d7nPS5dv42stQqdZbh08g",
-    #         "WNFxt2TyMDEuNNNZ9Z9zRQ",
-    #         "g-cQ3TeR7lcY_TObcDkw6w",
-    #         "IaelRCI4Ah5oxiHuBnFC7w",
-    #         "9kfDDNapNWKF5B41X27HkA",
-    #         "4hmaKbOARJsP_8UfRssQJg",
-    #         "ClIkpkKO-Es8MHlsfDOKMQ",
-    #         "OQqBFuA5tcxdHog8YgMRcQ",
-    #         "ZVrOGpZe5usRbdxxtmxHoQ",
-    #         "o2oD8bGW3oMaaTeSOqi-Kg",
-    #         "BzDbphyIfHWZUoaQQdAUYw",
-    #     ],
-    #     "loc": [4621600.795281307, 5685269.728156481],
-    # }
-    test_task = load_first_task(dataset="goodreads")
-
-    # test_task_safe = {
-    #     "type": "recommendation",
-    #     "user_id": test_task["user_id"],
-    #     "candidate_count": len(test_task["candidate_list"]),
-    #     "candidate_category": test_task["candidate_category"],
-    #     "has_location": True,
-    # }
-
-    # create task_description
-    task_description = json.dumps(test_task, indent=2)
-
-    # create planner,
-    # feedback: for planning validation(validate whether the output is in correct structure or contain required elements. Not yet implemented)
-    # few_shot: param for long-term memory(successful examples)
-    planner = PlanningIOCustom(llm_google)
-    plan = planner(
-        task_type="Recommendation Task",
-        task_description=task_description,
-        feedback="",
-        few_shot="",
+    groundtruth_files = sorted(
+        [
+            f
+            for f in os.listdir(base_path)
+            if f.startswith("groundtruth_") and f.endswith(".json")
+        ]
     )
-    for step in plan:
-        print(f"Step: {step['description']}")
-        print(f"Reasoning Instruction: {step['reasoning instruction']}")
-        print("----")
+
+    if not groundtruth_files:
+        raise FileNotFoundError(f"No task files found in {base_path}")
+
+    # read first groundtruth(groundtruth_0.json)
+    first_file = os.path.join(base_path, groundtruth_files[0])
+    print(f"Loading task file: {first_file}")
+
+    with open(first_file, "r", encoding="utf-8") as f:
+        task = json.load(f)
+
+    return task
+
+
+class TestRecommendationAgent(RecommendationAgent):
+    """
+    Only for local testing of planning module, without Simulator.
+    """
+
+    def __init__(self, llm: LLMBase, dataset: str = "goodreads"):
+        super().__init__(llm=llm)
+        self.dataset = dataset
+        self.planning = PlanningVoyagerCustom(llm=self.llm)
+        self.memory = MemoryDILU(llm=self.llm, reset=False)
+        self.reasoning = ReasoningIO(
+            profile_type_prompt="You are an intelligent recommendation system.",
+            memory=None,
+            llm=self.llm,
+        )
+        # Local interaction tool and info orchestrator for profile pipeline testing
+        # Note: current data_dir uses Yelp-style processed data in ./data
+        self.interaction_tool = InteractionTool(data_dir="./data")
+        self.info_orchestrator = InfoOrchestrator(
+            memory=self.memory,
+            llm=self.llm,
+            schema_fitter=None,
+            interaction_tool=None,
+            use_fixed_item_params=True,
+            max_candidates_to_profile=None,
+        )
+        self._schema_fitter_llm = self.llm
+
+    def workflow(self):
+
+        print("\n===== TEST: Planning Module (Recommendation Voyager) =====\n")
+        # load task and groundtruth from example/track2/{dataset}
+        test_task = load_first_task(dataset=self.dataset)
+        task_description = json.dumps(test_task, indent=2)
+        gt = load_first_groundtruth(dataset=self.dataset)
+        groundtruth_item = gt.get("ground truth")
+
+        # Retrieve one long-term memory trajectory as few-shot guidance for planning
+        task_query = json.dumps(test_task, ensure_ascii=False)
+        few_shot = self.memory(task_query) or ""
+
+        plan = self.planning(
+            task_type="Recommendation Task",
+            task_description=task_description,
+            feedback="",
+            few_shot=few_shot,
+        )
+        for step in plan:
+            print(f"Step: {step['description']}")
+            print(f"Reasoning Instruction: {step['reasoning instruction']}")
+            print("----")
+
+        # ----- InfoOrchestrator: build user/item profiles based on planner steps -----
+        # Initialize SchemaFitterIO once we have an interaction_tool
+        if self.info_orchestrator and self.interaction_tool:
+            if self.info_orchestrator.schema_fitter is None:
+                schema_fitter = SchemaFitterIO(
+                    self._schema_fitter_llm, self.interaction_tool
+                )
+                self.info_orchestrator.schema_fitter = schema_fitter
+            self.info_orchestrator.interaction_tool = self.interaction_tool
+
+        profiles = self.info_orchestrator(
+            planner_steps=plan,
+            user_id=test_task["user_id"],
+            candidate_list=test_task["candidate_list"],
+        )
+
+        user_profile = profiles.get("user_profile")
+        item_profiles = profiles.get("item_profiles", [])
+
+        print("\n===== INFO-ORCHESTRATOR OUTPUT =====")
+        if user_profile:
+            print("\n[User profile]")
+            print(json.dumps(user_profile, indent=2, ensure_ascii=False))
+        else:
+            print("\n[User profile] None")
+
+        if item_profiles:
+            print(f"\n[Item profiles] total={len(item_profiles)}, showing first 3:")
+            for p in item_profiles[:3]:
+                print(json.dumps(p, indent=2, ensure_ascii=False))
+        else:
+            print("\n[Item profiles] None")
+        print("===== END INFO-ORCHESTRATOR OUTPUT =====\n")
+
+        # ----- Reasoning: use task + profiles to rank candidate_list -----
+        reasoning_context = {
+            "task": test_task,
+            "user_profile": user_profile,
+            "item_profiles": item_profiles,
+            "candidate_list": test_task["candidate_list"],
+        }
+        reasoning_prompt = (
+            "You are a recommendation system. "
+            "Given the JSON context below, rank all items in candidate_list from most to least preferred "
+            "for the user. Return ONLY a Python list of item_id strings, in descending preference order, "
+            "and each id MUST come from candidate_list. Do not include any explanations.\n\n"
+            f"CONTEXT:\n{json.dumps(reasoning_context, ensure_ascii=False)}"
+        )
+
+        reasoning_output = self.reasoning(reasoning_prompt)
+        print("===== RAW REASONING OUTPUT =====")
+        print(reasoning_output)
+
+        # Parse ranked candidate list from reasoning_output
+        ranked_list = []
+        try:
+            match = re.search(r"\[.*?\]", reasoning_output, re.DOTALL)
+            if match:
+                list_str = match.group(0)
+                parsed = eval(list_str)  # simple eval for quick experiment
+                if isinstance(parsed, list):
+                    ranked_list = parsed
+        except Exception:
+            ranked_list = []
+
+        # Sanitize: keep only candidate_list ids, preserve order, deduplicate
+        seen = set()
+        ranked_filtered = []
+        for cid in ranked_list:
+            if (
+                isinstance(cid, str)
+                and cid in test_task["candidate_list"]
+                and cid not in seen
+            ):
+                seen.add(cid)
+                ranked_filtered.append(cid)
+        # append any missing candidates at the end in original order
+        for cid in test_task["candidate_list"]:
+            if cid not in seen:
+                ranked_filtered.append(cid)
+
+        print("\n[Ranked list from reasoning]:")
+        print(ranked_filtered)
+
+        # eval against groundtruth: check rank position
+        rank_pos = None
+        if groundtruth_item in ranked_filtered:
+            rank_pos = ranked_filtered.index(groundtruth_item) + 1  # 1-based
+        is_top5 = rank_pos is not None and rank_pos <= 5
+
+        print("[Ground truth]:", groundtruth_item)
+        print("[Ground truth rank position]:", rank_pos)
+        print("[Is in top-5]:", is_top5)
+
+        # Add Memory
+        trajectory = (
+            f"Task:\n"
+            f"    {task_description}\n\n"
+            f"Plan:\n"
+            f"    {plan}\n\n"
+            f"UserProfile:\n"
+            f"    {json.dumps(user_profile, ensure_ascii=False)}\n\n"
+            f"RankedList:\n"
+            f"    {ranked_filtered}\n\n"
+            f"GroundTruth:\n"
+            f"    {groundtruth_item}\n\n"
+            f"RankPos:\n"
+            f"    {rank_pos}\n\n"
+            f"IsTop5:\n"
+            f"    {is_top5}\n"
+        )
+        print("\n[Trajectory]:", trajectory)
+
+        return ranked_filtered
 
 
 if __name__ == "__main__":
-    test_planning_module()
-
-
-# output_openai:
-# [
-#   {
-#     "description": "Retrieve user profile data for user_id 'ztgVL0NPadoUwCO9MWeUUQ' from the user dataset.",
-#     "reasoning instruction": "Understand the user's preferences and behavior by analyzing their review count, average stars, and any compliments they have received."
-#   },
-#   {
-#     "description": "Retrieve metadata for each item in the candidate_list from the item dataset.",
-#     "reasoning instruction": "Gather information about each business, including their name, average stars, categories, and review count, to assess their general popularity and relevance."
-#   },
-#   {
-#     "description": "Retrieve all reviews written by user_id 'ztgVL0NPadoUwCO9MWeUUQ' from the review dataset.",
-#     "reasoning instruction": "Analyze the user's past reviews to identify patterns in their ratings and preferences, which can help predict their future interests."
-#   },
-#   {
-#     "description": "Retrieve all reviews for each item in the candidate_list from the review dataset.",
-#     "reasoning instruction": "Examine the reviews for each candidate item to understand their strengths and weaknesses from the perspective of other users, which can aid in determining their suitability for the current user."
-#   },
-#   {
-#     "description": "Filter candidate items based on proximity to the user's location (latitude: 4621600.795281307, longitude: 5685269.728156481).",
-#     "reasoning instruction": "Consider the geographical proximity of each business to the user, as closer businesses may be more convenient and thus more relevant."
-#   },
-#   {
-#     "description": "Rank the candidate items based on relevance to the user, considering user preferences, item popularity, review sentiments, and location proximity.",
-#     "reasoning instruction": "Integrate all gathered data to prioritize the candidate items, ensuring the most relevant and appealing options are recommended to the user."
-#   }
-# ]
-
-
-# output_gemini
-# [
-#     {
-#         "step": 1,
-#         "description": "Retrieve the user's profile details and all reviews submitted by the user.",
-#         "reasoning": (
-#             "Analyze the user's historical reviewing behavior, sentiment tendencies, "
-#             "and the categories/business types they frequently interact with. "
-#             "This helps establish their overall preferences and dislikes."
-#         )
-#     },
-#     {
-#         "step": 2,
-#         "description": (
-#             "For each item in `candidate_list`, retrieve detailed metadata including "
-#             "name, categories, star rating, review count, and location."
-#         ),
-#         "reasoning": (
-#             "Provides essential item attributes, which are necessary for aligning "
-#             "the candidates with user preferences and computing geographic proximity."
-#         )
-#     },
-#     {
-#         "step": 3,
-#         "description": (
-#             "Process the user's past review logs to identify commonly reviewed categories, "
-#             "their average ratings for those categories, and sentiment trends—particularly "
-#             "focusing on 'Shopping' or related domains."
-#         ),
-#         "reasoning": (
-#             "Determines which business types the user typically likes or dislikes and "
-#             "reveals preferences specifically related to shopping behaviors."
-#         )
-#     },
-#     {
-#         "step": 4,
-#         "description": (
-#             "For each candidate item, retrieve a sample of its reviews and examine the "
-#             "average star rating and total number of reviews."
-#         ),
-#         "reasoning": (
-#             "Helps understand public perception, extract key pros/cons, and measure "
-#             "overall popularity and external validation for each candidate."
-#         )
-#     },
-#     {
-#         "step": 5,
-#         "description": (
-#             "Using the user's provided `loc` (latitude, longitude) and each candidate "
-#             "item's location, compute geographic distance."
-#         ),
-#         "reasoning": (
-#             "Distance is an important factor in local recommendations. "
-#             "Closer items generally provide better convenience and relevance."
-#         )
-#     }
-# ]
+    # api_key_gemini = GEMINI_KEY
+    # api_key_openai = OPENAI_API_KEY
+    api_key_google = GOOGLE_API_KEY
+    # llm_gemini = GeminiLLM(api_key=api_key_gemini, model="gemini-1.5-pro")
+    # llm_openai = OpenAILLM(api_key=api_key_openai, model="gpt-4o")
+    llm_google = GeminiLLM(api_key=api_key_google, model="gemini-2.5-flash")
+    print("\n===== TEST: Planning Module (Recommendation Voyager, Class Mode) =====\n")
+    agent = TestRecommendationAgent(llm_google, dataset="goodreads")
+    result = agent.workflow()
+    print("Final recommended list:", result)
