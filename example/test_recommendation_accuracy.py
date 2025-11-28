@@ -16,6 +16,28 @@ import argparse
 import json
 import time
 import logging
+
+# ====== code added by Emma START =====
+# [CRITICAL SETUP] Force Python to prioritize local project code
+# ==========================================
+# NOTE: Without this block, Python will try to load 'websocietysimulator' from 
+# your global environment (site-packages) if it is installed there.
+#
+# Since 'pairwise_modules.py' is a new file you just added locally, 
+# the globally installed version DOES NOT have it.
+#
+# If you skip this, you will get: "ModuleNotFoundError: No module named '...pairwise_modules'"
+# ==========================================
+import pathlib
+import sys
+# Get the project root directory (grandparent of the current file)
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# Insert the root directory to the very beginning (index 0) of sys.path
+# This ensures imports look at your local folder FIRST before checking installed packages
+sys.path.insert(0, str(_REPO_ROOT))
+# ====== code added by Emma END =====
+
 from GoogleGeminiLLM import GoogleGeminiLLM
 from websocietysimulator import Simulator
 from EnhancedRecommendationAgent import EnhancedRecommendationAgent

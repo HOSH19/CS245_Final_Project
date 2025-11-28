@@ -11,6 +11,10 @@ from websocietysimulator.agent.modules.planning_modules import PlanningIO
 from websocietysimulator.agent.modules.reasoning_modules import ReasoningStepBack
 from websocietysimulator.llm import InfinigenceLLM
 
+# >>>>>>>>> NEW CODE START (1/3): Import Pairwise Module >>>>>>>>>
+from websocietysimulator.agent.modules.pairwise_modules import PairwiseRanker
+# <<<<<<<<< NEW CODE END (1/3) <<<<<<<<<
+
 from enhanced_agent.base_agent import EnhancedRecommendationAgentBase
 from enhanced_agent.workflow_mixins import EnhancedWorkflowMixin
 
@@ -61,6 +65,10 @@ class EnhancedRecommendationAgent(EnhancedWorkflowMixin, EnhancedRecommendationA
         
         # Store for later initialization
         self._schema_fitter_llm = llm
+
+        # >>>>>>>>> NEW CODE START (2/3): Initialize Pairwise Ranker >>>>>>>>>
+        self.pairwise_ranker = PairwiseRanker(llm)
+        # <<<<<<<<< NEW CODE END (2/3) <<<<<<<<<
     
     def insert_task(self, task):
         """
@@ -84,6 +92,80 @@ class EnhancedRecommendationAgent(EnhancedWorkflowMixin, EnhancedRecommendationA
             if self.info_orchestrator.item_retriever:
                 self.info_orchestrator.item_retriever.interaction_tool = self.interaction_tool
 
+    #>>>>>>>>> NEW CODE START (3/3): Updated workflow with Review History >>>>>>>>>
+    def workflow(self):
+        """
+        Override the default workflow to inject Pairwise Reranking.
+        """
+        # Step A: Execute Base Agent workflow to get initial ranking
+        initial_ranking = super().workflow()
+
+        # Safety check: If no initial ranking, return empty list
+        if not initial_ranking:
+            return []
+
+        # Step B: Prepare Context for Pairwise Ranker
+        user_id = self.task.get('user_id')
+        
+        # 1. Get basic User Info (usually only contains ID)
+        raw_user_info = self.interaction_tool.get_user(user_id=user_id)
+        
+        # =========================================================
+        # [CRITICAL MODIFICATION] Fetch User History Reviews
+        # This is crucial for the LLM to infer user taste.
+        # Without this, the LLM has no context to make comparisons.
+        # =========================================================
+        user_reviews = self.interaction_tool.get_reviews(user_id=user_id)
+        
+        # Process reviews: Take only the latest 10 and truncate text to save tokens
+        clean_history = []
+        # Safety check: Ensure user_reviews is a list
+        if isinstance(user_reviews, list):
+            for r in user_reviews[:10]: 
+                clean_history.append({
+                    "item_id": r.get("item_id"),
+                    "rating": r.get("stars", r.get("rating", "N/A")), # Compatible with different datasets
+                    "text": r.get("text", "")[:200] # Truncate to first 200 chars
+                })
+
+        # Construct a "Rich" User Profile
+        rich_user_profile = {
+            "basic_info": raw_user_info,
+            "history_reviews": clean_history,
+            "instruction": "Please infer user taste from history_reviews."
+        }
+
+        # 2. Fetch Top-K Item Profiles (Candidate Details)
+        top_k_check = 5 
+        candidates_to_fetch = initial_ranking[:top_k_check]
+        
+        item_profiles = []
+        for item_id in candidates_to_fetch:
+            info = self.interaction_tool.get_item(item_id=item_id)
+            if info:
+                info['item_id'] = item_id 
+                item_profiles.append(info)
+
+        # 3. Package Context
+        context = {
+            "user_profile": rich_user_profile, # Pass the rich profile containing reviews
+            "item_profiles": item_profiles
+        }
+
+        # Step C: Execute Pairwise Rerank
+        print(f"[EnhancedAgent] Pairwise Reranking (with History) on top {len(item_profiles)} candidates...")
+        final_ranking = self.pairwise_ranker.rerank(initial_ranking, context)
+
+        # Debug: Check if the ranking order has changed
+        if final_ranking[:5] == initial_ranking[:5]:
+            print("⚠️ [Observation] Pairwise DID NOT change the top 5 order.")
+        else:
+            print("🎉 [Observation] Pairwise SUCCESSFULLY changed the order!")
+            print(f"   Old Top 3: {initial_ranking[:3]}")
+            print(f"   New Top 3: {final_ranking[:3]}")
+
+        return final_ranking
+    # <<<<<<<<< NEW CODE END (3/3) <<<<<<<<<
 
 if __name__ == "__main__":
     logging.info("Initializing simulator...")

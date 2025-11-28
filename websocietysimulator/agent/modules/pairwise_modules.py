@@ -4,7 +4,8 @@ import json
 class PairwiseRanker:
     def __init__(self, llm):
         self.llm = llm
-        self.K = 3  # Only rerank the top 3 items
+        self.K = 5  # Only rerank the top 5 items
+        # Since we use "King of the Hill", this only costs 4 API calls per task.
 
     def rerank(self, initial_ranking, context):
         """
@@ -12,55 +13,70 @@ class PairwiseRanker:
             initial_ranking: List of 20 item IDs
             context: Dict containing 'user_profile' and 'item_profiles'
         Output:
-            final_ranking: List of 20 item IDs (Top 3 refined + Rest 17 original)
+            final_ranking: List of 20 item IDs (Winner moved to #1 + Rest)
         """
         
         # 1. Create lookup table (Item ID -> Profile)
         item_map = {item['item_id']: item for item in context['item_profiles']}
         user_profile = context['user_profile']
 
-        # 2. Split: Top 3 (to be reranked) and Rest (unchanged)
-        top_k_ids = initial_ranking[:self.K]
-        rest_ids = initial_ranking[self.K:]  # the remaining 4th-20th items
+        # 2. Split: Top K (Participants) and Rest (Spectators)
+        candidates = initial_ranking[:self.K]
+        rest = initial_ranking[self.K:]
 
-        # 3. Initialize scoreboard (only for Top 3)
-        scores = {item_id: 0 for item_id in top_k_ids}
+        # Safety check: if less than 2 items, no comparison needed
+        if len(candidates) < 2:
+            return initial_ranking
 
-        # 4. Round-Robin pairwise comparison
-        pairs = list(itertools.combinations(top_k_ids, 2))
-
-        for id_a, id_b in pairs:
-            profile_a = item_map.get(id_a)
-            profile_b = item_map.get(id_b)
-            
-            # Call LLM
-            winner_id = self.compare_pair(user_profile, profile_a, profile_b)
-
-            # [DEBUG] Print winner
-            winner_name = "A" if winner_id == id_a else "B" if winner_id == id_b else "Tie/Error"
-            print(f"[DEBUG] {id_a} vs {id_b} -> Winner: {winner_name}")
-
-            # Scoring
-            if winner_id == id_a:
-                scores[id_a] += 1
-                scores[id_b] -= 1
-            elif winner_id == id_b:
-                scores[id_b] += 1
-                scores[id_a] -= 1
-
-        # [DEBUG] Print final scores
-        print(f"[DEBUG] Final Scores: {scores}")
+        # 3. King of the Hill Strategy (Linear Scan)
+        # We assume the first item is the current "King" (Winner).
+        current_winner_id = candidates[0]
         
-        # 5. Sort Top 3 (Stable Sort)
-        # Items with higher scores rank higher; ties resolved by original order
-        sorted_top_3 = sorted(
-            top_k_ids,
-            key=lambda item_id: (-scores[item_id], top_k_ids.index(item_id))
-        )
+        print(f"\n[Pairwise] Starting 'King of the Hill' scan on Top {self.K} candidates...")
 
-        # 6. Concatenate the sorted Top 3 with the rest
-        final_ranking = sorted_top_3 + rest_ids
+        # Iterate through the challengers (Item 2 to Item 5)
+        for challenger_id in candidates[1:]:
+            
+            # Retrieve profiles
+            profile_winner = item_map.get(current_winner_id)
+            profile_challenger = item_map.get(challenger_id)
+            
+            # Skip if profile missing (should not happen if data is clean)
+            if not profile_winner or not profile_challenger:
+                continue
 
+            # Compare: Current King (Item A) vs Challenger (Item B)
+            winner_result = self.compare_pair(user_profile, profile_winner, profile_challenger)
+            
+            # Log the fight result
+            winner_label = "Challenger" if winner_result == challenger_id else "Current King"
+            print(f"[DEBUG] {current_winner_id} (King) vs {challenger_id} (Challenger) -> Winner: {winner_label}")
+
+            # Update the King if the challenger wins
+            if winner_result == challenger_id:
+                current_winner_id = challenger_id
+            else:
+                # Current winner defends the title, continues to next round
+                pass
+
+        print(f"[Pairwise] Final Winner identified: {current_winner_id}")
+
+        # 4. Reconstruct the list
+        # Strategy: Move the ultimate winner to Rank 1.
+        # Keep the others in their original relative order to preserve Pointwise signals.
+        
+        others = [x for x in candidates if x != current_winner_id]
+        final_top_k = [current_winner_id] + others
+        
+        # 5. Concatenate with the rest of the list
+        final_ranking = final_top_k + rest
+
+        final_ranking = [str(item) for item in final_ranking]
+        if len(final_ranking) != len(initial_ranking):
+            print(f"[ERROR] List length changed! Original: {len(initial_ranking)}, New: {len(final_ranking)}")
+            # if the lengths don't match, return the initial ranking
+            return initial_ranking
+        
         return final_ranking
 
     def compare_pair(self, user_profile, item_a, item_b):
@@ -70,34 +86,41 @@ class PairwiseRanker:
             item_a_str = json.dumps(item_a, ensure_ascii=False)
             item_b_str = json.dumps(item_b, ensure_ascii=False)
 
+            # >>>>>>>>> STRICTER PROMPT FOR SIGNIFICANT DIFFERENCE >>>>>>>>>
             prompt = f"""
-I need you to act as an expert book recommendation judge.
-
-You are given a User Profile and two Book Candidates (Book A and Book B).
-Your task is to analyze the full details of the user and the books to decide which book is a better match.
+Role: You are a strict personal librarian and recommendation judge.
+Your goal is to determine if a new book candidate is **significantly better** than the current best option for this specific user.
 
 [User Profile]
 {user_str}
 
-[Book A]
-{item_a_str}
-
-[Book B]
+[Candidate B (The Challenger)]
 {item_b_str}
 
-**Task:**
-Compare Book A and Book B. Which one is a better recommendation for this user?
+[Candidate A (The Current Champion)]
+{item_a_str}
 
-**Rules:**
-1. Match the user's preferences with the book's attributes.
-2. Ignore the order of presentation.
-3. Output ONLY 'A' if Book A is better, 'B' if Book B is better.
+**Task:**
+Compare Candidate A and Candidate B strictly based on the user's taste history.
+You must decide if Candidate B provides a specific value that Candidate A misses.
+
+**Strict Evaluation Rules:**
+1. **Threshold:** Only pick Candidate B if it is a **SIGNIFICANTLY better fit** for the user's specific sub-genres or mood than Candidate A.
+2. **Tie-Breaker:** If both books are equally good fits, or if the difference is subjective, **you MUST stick with Candidate A**.
+3. **Niche over Popularity:** Do not pick B just because it is popular. It must match the user's unique history.
+
+**Output:**
+Reasoning: [Explain why B is/is not significantly better than A]
+Winner: [A or B]
 """
+            # <<<<<<<<< PROMPT END <<<<<<<<<
+
             # call LLM
             messages = [{"role": "user", "content": prompt}]
-            # Call self.llm directly (triggers GoogleGeminiLLM's __call__)
-            # response will be a string
             response = self.llm(messages=messages)
+
+            # Debug: look what LLM responded
+            print(f"[LLM Thinking]: {response}")
             
             # Ensure it is a string and convert to uppercase (GoogleGeminiLLM returns str)
             response = response.strip().upper()
@@ -105,15 +128,27 @@ Compare Book A and Book B. Which one is a better recommendation for this user?
             # get the IDs for further computation
             id_a, id_b = item_a['item_id'], item_b['item_id']
 
-            # Parse response
-            if 'A' in response and 'B' not in response: return id_a
-            if 'B' in response and 'A' not in response: return id_b
-            if response == 'A': return id_a
-            if response == 'B': return id_b
-            if response.startswith('A'): return id_a
-            if response.startswith('B'): return id_b
+            # ===== ROBUST PARSING =====
+            # 1. Precise match (Explicit Match)
+            if "WINNER: B" in response or "WINNER: [B]" in response:
+                return id_b
+            if "WINNER: A" in response or "WINNER: [A]" in response:
+                return id_a
+            # 2. Check the end of the string (End of String Check)
+            # Since the prompt requests the Winner on the last line, checking the last character is usually accurate.
+            clean_response = response.replace(".", "").strip() # remove periods and whitespace
+            if clean_response.endswith("WINNER: B") or clean_response.endswith(" B"):
+                return id_b
+            if clean_response.endswith("WINNER: A") or clean_response.endswith(" A"):
+                return id_a
+            # 3. If the above fail, use loose checking (but be careful of noise in Reasoning)
+            # Here we only check the "last line" of text to avoid reading A/B within the Reasoning section.
+            last_line = response.split('\n')[-1] # Look at the last line only
+            if "B" in last_line and "A" not in last_line: return id_b
+            if "A" in last_line and "B" not in last_line: return id_a
             
-            return None 
-
+            # Default: If parsing fails, maintain original ruling (King Wins)
+            return id_a 
+        
         except Exception:
             return None
