@@ -19,7 +19,7 @@ from websocietysimulator.agent.modules.info_orchestrator_module import InfoOrche
 from websocietysimulator.agent.modules.schemafitter_module import SchemaFitterIO
 from websocietysimulator.agent.modules.pairwise_modules import PairwiseRanker
 from gemini import GeminiLLM
-from Ai_AGENT_SH_branch.websocietysimulator.agent.modules.planning_modules import (
+from websocietysimulator.agent.modules.planning_modules import (
     PlanningIO as PlanningIO_SH,
     PlanningVoyager as PlanningVoyager_SH,
     PlanningDEPS as PlanningDEPS_SH,
